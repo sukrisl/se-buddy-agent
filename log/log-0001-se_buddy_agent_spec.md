@@ -276,6 +276,7 @@ Constraints this imposes, all of which **MUST** be documented in the project REA
 | Background monitors do not load from project scope at all | **Do not design any feature around monitors** |
 | MCP servers get per-server approval; LSP starts only after trust | Keep the CLI as `bin/`, not MCP, unless MCP earns its place (§12) |
 | `SKILL.md` edits are live; `hooks/`, `.mcp.json`, `agents/` changes are not | After `git submodule update`, run `/reload-plugins` |
+| The agent vendors its own pinned dependencies as nested submodules | Clone and update with `--recursive`; never combine `--remote` with `--recursive` (§7.1) |
 
 Version pinning is the submodule commit. `git submodule update --remote` is the upgrade, and it is the project's decision when to take it.
 
@@ -292,8 +293,11 @@ bin/                            se-buddy CLI entry point
 src/se_buddy/                   §7
 templates/                      profile scaffolding written by init
 templates/domains/              example domain packs (§5.4)
+vendor/py-capellambse/          nested submodule, pinned v0.8.1 (§7.1)
+pyproject.toml                  capellambse==0.8.1 + a transitive lockfile
 SPEC.md                         this document
 SPEC-COVERAGE.md                §13 — written from the first commit
+AGENT-LOG.md                    §5.5 — one entry per change that reaches a project
 ```
 
 Concrete project, after `git submodule add` and `/se-buddy:project-init`:
@@ -328,7 +332,7 @@ se-buddy/                       PROFILE + MEMORY, all project-owned
 
 Until then the agent **MAY** retrieve, explain and reason, and **MUST** state on every architectural judgement that the project style is unrecorded (C02). It **MUST NOT** claim an architecture is sound, or that a viewpoint compromise is proven, against an incomplete profile.
 
-`se-buddy doctor` reports profile completeness, model reachability, register schema validity and submodule version.
+`se-buddy doctor` reports profile completeness, model reachability, register schema validity, the pinned submodule version, any agent changes newer than it (§5.5), and the capellambse version check of §7.1.
 
 ### 5.4 Domain packs
 
@@ -353,6 +357,38 @@ Two deliberate departures from that reference, both open to challenge:
 - **No unverifiable success metrics.** Completion is measured against perspective stop criteria (§2.2) and register state, both of which are queryable.
 
 **SHOULD:** ship two or three reference packs in `templates/domains/` as starting points. They are examples the project copies and edits — never agent-layer content, never active by default.
+
+---
+
+### 5.5 Agent change history
+
+The agent is consumed by several projects, each pinned to a submodule commit (§5.1). Git records what changed in the agent; it does not tell a project whether the change reaches them, or what they must do about it. `AGENT-LOG.md` at the agent repo root carries that, and nothing else.
+
+**MUST:** any change to a **surface** — a skill, a hook, the CLI, a schema, a perspective reference, a template, or a pinned dependency — adds one entry to `AGENT-LOG.md` **in the same commit** as the change. Newest first, append-only, never rewritten.
+
+One entry, five lines:
+
+```
+## AC-0007 — 2026-09-14 — arch-viewpoint now requires a priority order
+surface   schema, skill
+breaking  yes — a viewpoints.yaml without `priority` now fails validation
+action    SUPPLY a priority order for each recorded viewpoint, then run se-buddy doctor
+why       a viewpoint that cannot decide a boundary cannot justify a component breakdown
+```
+
+| Field | Content |
+| --- | --- |
+| heading | id, date, and the claim in one line (D3) |
+| `surface` | which of the seven changed — this is what tells a project whether to read on |
+| `breaking` | `no`, or `yes` and what breaks in a project that upgrades |
+| `action` | what the project must do, named as a D8 act, or `none` |
+| `why` | one line |
+
+**What is not logged:** refactoring with no behavioural change, internal reorganisation, documentation typos, anything invisible from a consuming project. A log that records everything is a second git history and gets read as rarely.
+
+**Where it is read.** `se-buddy doctor` **MUST** report entries newer than the commit the project has pinned. That is the entire point of the file: at `git submodule update --remote`, the engineer sees what reached them and what it asks of them, instead of reading a diff of the agent's source.
+
+An entry whose change alters whether a requirement is enforced or instructed **MUST** also update `SPEC-COVERAGE.md` (§13) in the same commit.
 
 ---
 
@@ -414,6 +450,31 @@ Joins live inside named commands, not in ad-hoc traversal by the reasoning layer
 | Rendered context diagrams | `capellambse-context-diagrams` (§7.4) |
 | Model diff | `capella-diff-tools`, if it fits; otherwise ours |
 | Requirements and PVMT viewpoints | `capellambse` extension support |
+
+#### The version is pinned, and the pin is verified
+
+**MUST:** py-capellambse is pinned to **v0.8.1**, vendored as a submodule of the agent repo at `vendor/py-capellambse`, and declared as `capellambse==0.8.1` in `pyproject.toml`. The two **MUST** agree.
+
+**MUST:** `se-buddy doctor` compares the *running* `capellambse.__version__` against the pin and **refuses to run** on a mismatch, naming both versions. This is the check that matters. A pin that is never verified does not prevent a broken agent — it only records what should have been installed, and every other measure here is a way of making the mismatch unlikely rather than impossible.
+
+**Drift, and where it can actually come from.** `git clone --recursive` and `git submodule update --recursive` check out the *recorded* commit, so neither moves the pin. Only `--remote` fetches a branch tip. Therefore:
+
+| | |
+| --- | --- |
+| `git submodule update --init --recursive` | **safe** — restores v0.8.1 exactly. This is the normal command |
+| `git submodule update --remote` on the agent submodule | the project's upgrade of the *agent*, taken deliberately (§5.1) |
+| `git submodule update --remote --recursive` | **MUST NOT be run.** It would move py-capellambse to whatever the tracked branch points at |
+
+**MUST:** the agent repo's README states that `--remote` is never combined with `--recursive`, and the pinned version is recorded in `AGENT-LOG.md` at the commit that set it, so the intended version is readable without inspecting submodule metadata.
+
+**Changing the pin is an authorised, recorded act.** A version bump is a change to the `dependency` surface (§5.5), and:
+
+1. spike 1 and spike 2 of §12 are re-run against the new version — a round-trip that was clean at one version is not evidence about another;
+2. the bump is authorised by the engineer, never taken because a newer release exists;
+3. an `AGENT-LOG.md` entry records it with `surface: dependency`, `breaking:` stating what changes for a project, and `action:` naming what each project must do;
+4. `pyproject.toml` and the submodule commit move in the same commit.
+
+A transitive-dependency lockfile **MUST** accompany the pin. Pinning `capellambse` alone leaves `lxml` and the rest floating, and a C-extension dependency moving underneath is the same failure by another route.
 
 `capellambse.decl`'s YAML is structurally the same thing a `CP-nnnn` already is. **SHOULD:** make `proposed_changes` a `decl` document directly, so the proposal *is* the executable change rather than something translated into one. This removes an entire translation layer and the class of bug that lives in it — a proposal that reviews correctly but applies as something else.
 
@@ -627,6 +688,8 @@ Phase 4 is not optional polish. Reuse is the point, and it is unproven until a s
 6. **CLI as `bin/` vs MCP server.** `bin/` is simpler and avoids per-server approval; MCP gives structured results. Decide on evidence, not preference.
 7. **Diagram generation quality.** Does a generated context diagram actually carry a review? Answers §7.4's open question and gates §10.3.
 
+8. **How Python dependencies reach a fresh clone.** §5.1 makes the agent installable by `git submodule add` with no install step, but capellambse pulls `lxml` and other C-extension packages that cannot be vendored by submodule. Establish the bootstrap — a venv the CLI creates on first run, a documented `pip install -e`, or something else — and whether `doctor` can detect and repair a missing one. **This is unresolved and blocks phase 1.**
+
 Also open, and for the engineer rather than a spike:
 
 - Register file granularity (§6.2)
@@ -653,7 +716,9 @@ The review questions, in priority order:
 7. Is there a second representation of the registers or the model anywhere? (§6.3)
 8. Does the write guard hold against `Edit` / `Write` on model files? (§10.1)
 9. Can an ask be produced without `act` or `done_when`? (D8, §9)
-10. Did a second project install and run without editing the submodule? (§11, phase 4)
+10. Did a surface change land without an `AGENT-LOG.md` entry in the same commit? (§5.5)
+11. Does `doctor` refuse to run when the installed capellambse is not the pinned version? (§7.1)
+12. Did a second project install and run without editing the submodule? (§11, phase 4)
 
 ---
 
