@@ -122,13 +122,16 @@ Authority is asymmetric and **MUST** be enforced, not merely instructed, whereve
 
 An agent that reasons correctly but illegibly has not done the job. Tracking a four-deep reference chain is free for the agent and expensive for the engineer, and the engineer is the one who has to check the work.
 
-Three failure modes are distinct and need different mechanisms. Conflating them means only the first ever gets fixed, because it is the only one that is visible in the output.
+Four failure modes are distinct and need different mechanisms. Conflating them means only the first ever gets fixed, because it is the only one visible in the output.
 
 | Failure | Symptom | Mechanism |
 | --- | --- | --- |
 | Output verbosity | records nobody reads | D6, D7, `write-plain`, size budgets |
 | Deliberation complexity | six alternatives where two are live; ceremony for a lookup | D1, D2, D5 |
 | Reference-chain depth | `ADR-0007 → CP-0022 → CHANGE-0053 → P-04` | D3, D4 |
+| Illegible asks | the engineer cannot tell what is wanted, how big it is, or whether it can wait | D8, D9 |
+
+The last is the one that stalls work rather than merely slowing it. The other three cost the engineer time; an ask they cannot parse costs them the decision entirely, because deferring is safer than guessing at what was meant.
 
 ### The rules
 
@@ -161,7 +164,48 @@ Citing instead of restating is correct for brevity, and is exactly what produces
 
 **D7 — Brevity never applies to open work.** `still_open` items, followup checklists, unknowns and open questions are **absolutely exempt**. They are the only fields that are actionable later, and an item lost there is work lost. Brevity applies to restatement, never to outstanding work.
 
+**D8 — Name the act being asked for.** Every request to the engineer states which act it wants, from a closed vocabulary. An engineer who cannot tell a decision from an authorisation from a confirmation cannot tell what kind of answer to give, or how long it should take.
+
+| Act | What the engineer does | Produces |
+| --- | --- | --- |
+| `DECIDE` | settle an architectural question between stated options | `ADR-nnnn` |
+| `AUTHORISE` | approve one named proposal for application | the `--authorized-by` text |
+| `CONFIRM` | say whether a stated fact is true | a FACT the agent may then cite |
+| `REVIEW` | judge whether something the agent produced stands | acceptance, or a correction |
+| `DRAW` | do manual work in Capella | a ticked followup item |
+| `SUPPLY` | provide profile or register content that does not exist yet | a viewpoint, principle, requirement or risk |
+| `PRIORITISE` | choose the order of work that all needs doing | a sequence |
+
+Each ask carries these five fields, **one line each**:
+
+```
+act          one of the above
+object       what specifically — an id, an element, or the question itself
+done when    what makes this answered; for DECIDE, the options
+blocks       what cannot proceed until it is answered, or "nothing"
+default      what the agent assumes if it is not answered, or "none — this blocks"
+```
+
+`default` is not politeness. It is what lets the engineer defer safely, and a default the agent then acts on **MUST** be recorded as an ASSUMPTION (C01), never absorbed silently.
+
+**D9 — Bound the ask.** An ask whose `done when` cannot be stated is not ready to be asked — narrow it until it can be.
+
+```
+not an ask:  review the logical architecture
+an ask:      REVIEW — does LC-014 owning retry belong here, given
+             ADR-0007 (device owns schedule execution)?
+             done when  you accept it, or name a different owner
+             blocks     CP-0022
+             default    none — this blocks
+```
+
+Where more than three asks are open at once, the agent **MUST** sequence them and name which is first and why. An undifferentiated list of everything outstanding is a report, not an ask.
+
+**MUST:** any response that needs something from the engineer ends with its asks collected in one block, containing nothing else. The same shape is used on disk — `open_questions`, `still_open`, and every followup checklist entry (§9, §10.3).
+
 ### Precedence
+
+Open work is exempt from brevity (D7), never from shape. D7 keeps the item from being dropped; D8 and D9 make it answerable.
 
 Where D1–D6 pull against an epistemic label (§4, C01), a hedge, or an uncertainty statement, **the label and the hedge win**. A short answer that hides uncertainty is a worse failure than a long one that does not.
 
@@ -205,7 +249,7 @@ Three layers, with a hard boundary between them.
 
 | Layer | Contents | Owner | Lifecycle |
 | --- | --- | --- | --- |
-| **AGENT** | skills, C01–C08, D1–D7, Arcadia perspective reference, `se-buddy` CLI, schemas, hooks | this repo | versioned, shared, never edited in a project |
+| **AGENT** | skills, C01–C08, D1–D9, Arcadia perspective reference, `se-buddy` CLI, schemas, hooks | this repo | versioned, shared, never edited in a project |
 | **PROFILE** | model paths, domain pack, viewpoints + priority, principles, project rules, glossary | the project | authored at init, evolves |
 | **MEMORY** | ADRs, proposals, change records, registers | the project | append-mostly |
 
@@ -390,9 +434,9 @@ These encode engineering judgement, not Capella mechanics, and no library will p
 | --- | --- |
 | `validate` | structural / representation / architectural / traceability / consistency findings, each `PASS` `WARN` `ERROR` `UNKNOWN` with evidence |
 | `perspective` | each Arcadia perspective's expected content and stop criteria; agreement-based criteria always `UNKNOWN`; Capella's own root elements discounted so an untouched layer reads as untouched |
-| `schemas` | record and register validation, including the mandatory `claim` field (D3) and the D7 exemptions |
+| `schemas` | record and register validation, including the mandatory `claim` field (D3), the ask shape (D8) and the D7 exemptions |
 | `index` | §6.3 |
-| `memory` | id allocation, citation rendering as `ID (claim)`, followup tracking |
+| `memory` | id allocation, citation rendering as `ID (claim)`, ask collection and sequencing (D8, D9), followup tracking |
 
 ### 7.3 CLI surface
 
@@ -410,6 +454,7 @@ se-buddy register <name> [filter]  # requirements | stakeholder-expectations | r
 se-buddy perspective [<layer>]     # one Arcadia perspective against its own stop criteria
 se-buddy validate                  # five layers of findings with evidence
 se-buddy followup                  # manual diagram work still owed
+se-buddy asks                      # every open ask across records, in D8 shape, sequenced
 se-buddy propose draft.yaml        # file a proposal; never touches the model
 se-buddy plan CP-nnnn              # dry run: what would change, what must be drawn by hand
 se-buddy record draft.yaml         # record work the engineer did by hand in Capella
@@ -486,13 +531,15 @@ Eighteen. Skills are cheap to load and expensive to *route*; the risk is `frame-
 
 Each `SKILL.md` **MUST** cover: purpose · when to invoke · inputs · context required · procedure · outputs · commands used · authority constraints · failure handling · interaction with other skills.
 
-**MUST NOT** restate C01–C08 or D1–D7 in prose. Reference them.
+**MUST NOT** restate C01–C08 or D1–D9 in prose. Reference them.
 
 **MUST NOT** name a project, a domain, or a specific model element.
 
 ### 8.3 Response structure
 
-For substantial reasoning, use these sections, **omitting any that would be empty**: Understanding · Facts · Assumptions · Unknowns · Architectural Context · Analysis · Risks · Benefits · Recommendation · Proposed Change · Traceability · Verification Implications · Open Questions.
+For substantial reasoning, use these sections, **omitting any that would be empty**: Understanding · Facts · Assumptions · Unknowns · Architectural Context · Analysis · Risks · Benefits · Recommendation · Proposed Change · Traceability · Verification Implications · **Asks**.
+
+**Asks is always last, and always in the D8 shape.** It is the only section the engineer must act on, so nothing else belongs in it and nothing that needs acting on belongs anywhere else.
 
 For `lookup` and most `judgement` work, answer in prose. D1 governs; the full structure is a `decision`-tier instrument and using it lower is a D5 defect.
 
@@ -509,6 +556,18 @@ tier:          # lookup | judgement | decision (D1)
 date:
 supersedes:    # [] — history is superseded, never rewritten
 ```
+
+Every open item — an `open_questions` entry, a `still_open` entry, or a followup checklist line — **MUST** carry the D8 fields:
+
+```yaml
+act:           # DECIDE | AUTHORISE | CONFIRM | REVIEW | DRAW | SUPPLY | PRIORITISE
+object:        # one line
+done_when:     # one line
+blocks:        # one line, or "nothing"
+default:       # one line, or "none — this blocks"
+```
+
+**Enforced:** an open item missing `act` or `done_when` is rejected. These are the two fields whose absence makes an item unanswerable, and an unanswerable item is indistinguishable from a lost one.
 
 Beyond that, stated as intent rather than a final field list:
 
@@ -543,6 +602,8 @@ validate targets → snapshot → apply → re-parse → validate → diff → r
 
 **Modelling track only.** A pass produces at most one `CHANGE-nnnn`: one bounded change, answering one engineering question, whose followup checklist the engineer can draw and check in a single Capella session against a single diff.
 
+Every checklist entry is an ask in the D8 shape with `act: DRAW`, naming the diagram and what makes it done — not a description of the model change that caused it.
+
 `apply` **MUST** refuse while any followup checklist is unticked. An override flag exists; the agent **MUST NOT** add it on its own initiative — bring the refusal to the engineer.
 
 This rule exists solely to throttle hand-drawing debt (§7.4). It has nothing to say about architecture work: reasoning and ADRs are not rate-limited by diagram debt. If §7.4's open question resolves, this relaxes with it.
@@ -555,7 +616,7 @@ Do not implement everything at once. The write path is the tempting place to sta
 
 | Phase | Contents | Gate to the next |
 | --- | --- | --- |
-| **1 — Read and reason** | capellambse loading, index, `doctor`, `inspect`/`search`/`show`/`query`, `project-init`, shared + architecture skills, C01–C08, D1–D7 | The agent maintains a useful semantic understanding and produces reasoning the engineer trusts. **No model write access exists yet.** |
+| **1 — Read and reason** | capellambse loading, index, `doctor`, `inspect`/`search`/`show`/`query`, `project-init`, shared + architecture skills, C01–C08, D1–D9 | The agent maintains a useful semantic understanding and produces reasoning the engineer trusts. **No model write access exists yet.** |
 | **2 — Registers** | register schemas, `risk-manage`, the model-and-register join, `write-plain` | Registers answer real questions the model alone could not |
 | **3 — Controlled modification** | `propose` / `plan` / `apply` / `validate` / `record` / `revert`, the write guard hook, modelling skills | Phase 1 reasoning is trusted, and a real change applies and reverts cleanly |
 | **4 — Portability proof** | a second project installed from scratch by submodule + init | **The real acceptance test.** Nothing project-specific leaked into the agent layer |
@@ -601,7 +662,8 @@ The review questions, in priority order:
 6. Is structural validation read anywhere as perspective completeness? (§2.2)
 7. Is `index.db` in git, or treated as a source of truth? (§6.3)
 8. Does the write guard hold against `Edit` / `Write` on model files? (§10.1)
-9. Did a second project install and run without editing the submodule? (§11, phase 4)
+9. Can an ask be produced without `act` or `done_when`? (D8, §9)
+10. Did a second project install and run without editing the submodule? (§11, phase 4)
 
 ---
 
