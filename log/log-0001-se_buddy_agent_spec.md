@@ -49,7 +49,7 @@ The architecture is therefore fixed at three parties:
 | | |
 | --- | --- |
 | **Claude Code** | the reasoning layer — retrieve, analyse, review, propose, explain |
-| **`se-buddy` CLI** | the deterministic layer — parse, index, query, validate, apply, record |
+| **`se-buddy` CLI** | the deterministic layer — parse, search, trace, validate, apply, record |
 | **The engineer** | every architectural decision, and every authorisation |
 
 ---
@@ -160,7 +160,7 @@ Citing instead of restating is correct for brevity, and is exactly what produces
 
 **D5 — No manufactured ceremony.** A change determined by an existing ADR, principle or model fact is a lookup. Ceremony where a lookup would do is a **reportable defect**, symmetric with "treating generic best practice as a project requirement" — `arch-review` reports both.
 
-**D6 — Counts, not enumerations.** `85 SystemFunction elements in 11 capability groups`, never 85 names. **Tooled:** the index (§6.3) makes this a `GROUP BY` rather than an in-context enumeration, which is both cheaper and correct.
+**D6 — Counts, not enumerations.** `85 SystemFunction elements in 11 capability groups`, never 85 names. **Tooled:** the CLI reports counts directly from the model, so a number never comes from the agent enumerating in context — which is both cheaper and less likely to be wrong.
 
 **D7 — Brevity never applies to open work.** `still_open` items, followup checklists, unknowns and open questions are **absolutely exempt**. They are the only fields that are actionable later, and an item lost there is work lost. Brevity applies to restatement, never to outstanding work.
 
@@ -315,7 +315,6 @@ se-buddy/                       PROFILE + MEMORY, all project-owned
   changes/CHANGE-nnnn.yaml
   changes/CHANGE-nnnn.followup.md
   snapshots/                    pre-apply model copies
-  index.db                      DERIVED, gitignored (§6.3)
 ```
 
 ### 5.3 What init demands
@@ -329,7 +328,7 @@ se-buddy/                       PROFILE + MEMORY, all project-owned
 
 Until then the agent **MAY** retrieve, explain and reason, and **MUST** state on every architectural judgement that the project style is unrecorded (C02). It **MUST NOT** claim an architecture is sound, or that a viewpoint compromise is proven, against an incomplete profile.
 
-`se-buddy doctor` reports profile completeness, model reachability, index freshness and submodule version.
+`se-buddy doctor` reports profile completeness, model reachability, register schema validity and submodule version.
 
 ### 5.4 Domain packs
 
@@ -359,7 +358,7 @@ Two deliberate departures from that reference, both open to challenge:
 
 ## 6. Engineering memory
 
-Split by **data shape**, not by convenience.
+Split by **data shape**, not by convenience — narrative records as files (§6.1) and spreadsheet-shaped registers as tabular text (§6.2). Both are YAML in git, and they are the only representation (§6.3).
 
 ### 6.1 Narrative records — files
 
@@ -393,21 +392,13 @@ registers/verification.yaml
 
 Format: one file per register, rows keyed by stable id, YAML. One file per row is the alternative if concurrent editing ever becomes real; it is not, for one engineer, and it costs readability. **OPEN.**
 
-### 6.3 The index — derived SQLite
+### 6.3 Answering cross-cutting questions
 
-**MUST:** `index.db` is a **derived artefact**. It is gitignored, rebuilt from files and the Capella model by `se-buddy index`, and is never a source of truth. A binary in git gives unresolvable merge conflicts and destroys diff review on exactly the records that most need reviewing.
+**MUST:** every fact has exactly one representation — a register row, a record, or a model element. A question that spans them is answered by loading them and joining in code.
 
-It holds: model elements and relationships (loaded via capellambse), every register row, and record *metadata* — id, claim, dates, authority, links — but never record bodies.
+Joins live inside named commands, not in ad-hoc traversal by the reasoning layer. `se-buddy register`, `se-buddy trace`, `se-buddy followup` and `se-buddy asks` each load what they need — registers through the schema loader, model elements through capellambse — and return rows carrying ids. A question asked twice returns the same shape both times, and every answer is citable as a FACT (C01).
 
-The prize is a single join across model and registers that neither Capella nor a directory of YAML can answer:
-
-> which unmitigated system risks touch Logical Architecture components that realize an unverified requirement?
-
-It also makes D6 real: counts become `GROUP BY` rather than an in-context enumeration.
-
-`se-buddy doctor` **MUST** report index staleness against source file mtimes, and every query result **SHOULD** carry the index timestamp so a stale answer is visible rather than silent.
-
----
+`se-buddy trace <id>` is the cross-cutting one: given any id — an element, a register row, a record — it reports what that id traces to, what traces to it, and what breaks if it changes (C07). Transitive closure is a graph walk over objects already in memory.
 
 ## 7. The toolkit
 
@@ -435,7 +426,7 @@ These encode engineering judgement, not Capella mechanics, and no library will p
 | `validate` | structural / representation / architectural / traceability / consistency findings, each `PASS` `WARN` `ERROR` `UNKNOWN` with evidence |
 | `perspective` | each Arcadia perspective's expected content and stop criteria; agreement-based criteria always `UNKNOWN`; Capella's own root elements discounted so an untouched layer reads as untouched |
 | `schemas` | record and register validation, including the mandatory `claim` field (D3), the ask shape (D8) and the D7 exemptions |
-| `index` | §6.3 |
+| `trace` | closure over model and registers for one id: what it traces to, what traces to it, what breaks if it changes (C07) |
 | `memory` | id allocation, citation rendering as `ID (claim)`, ask collection and sequencing (D8, D9), followup tracking |
 
 ### 7.3 CLI surface
@@ -443,12 +434,11 @@ These encode engineering judgement, not Capella mechanics, and no library will p
 Read-only unless marked. Names are indicative, not binding.
 
 ```bash
-se-buddy doctor                    # profile completeness, model reachability, index freshness
-se-buddy index                     # rebuild index.db from files + model
+se-buddy doctor                    # profile completeness, model reachability, register validity
 se-buddy inspect                   # model + diagrams + memory overview
 se-buddy search <words>            # elements by name/summary; --kind --layer --limit
 se-buddy show <id>                 # one element or record, relationships, diagrams, citations
-se-buddy query "<sql>"             # the join of §6.3
+se-buddy trace <id>                # what it traces to, what traces to it, what breaks (§6.3)
 se-buddy memory <domain> [text]    # principles | decisions | assumptions | viewpoints | knowledge
 se-buddy register <name> [filter]  # requirements | stakeholder-expectations | risks-* | verification
 se-buddy perspective [<layer>]     # one Arcadia perspective against its own stop criteria
@@ -616,8 +606,8 @@ Do not implement everything at once. The write path is the tempting place to sta
 
 | Phase | Contents | Gate to the next |
 | --- | --- | --- |
-| **1 — Read and reason** | capellambse loading, index, `doctor`, `inspect`/`search`/`show`/`query`, `project-init`, shared + architecture skills, C01–C08, D1–D9 | The agent maintains a useful semantic understanding and produces reasoning the engineer trusts. **No model write access exists yet.** |
-| **2 — Registers** | register schemas, `risk-manage`, the model-and-register join, `write-plain` | Registers answer real questions the model alone could not |
+| **1 — Read and reason** | capellambse loading, `doctor`, `inspect`/`search`/`show`/`trace`, `project-init`, shared + architecture skills, C01–C08, D1–D9 | The agent maintains a useful semantic understanding and produces reasoning the engineer trusts. **No model write access exists yet.** |
+| **2 — Registers** | register schemas, `risk-manage`, `trace` across model and registers, `write-plain` | Registers answer real questions the model alone could not |
 | **3 — Controlled modification** | `propose` / `plan` / `apply` / `validate` / `record` / `revert`, the write guard hook, modelling skills | Phase 1 reasoning is trusted, and a real change applies and reverts cleanly |
 | **4 — Portability proof** | a second project installed from scratch by submodule + init | **The real acceptance test.** Nothing project-specific leaked into the agent layer |
 
@@ -660,7 +650,7 @@ The review questions, in priority order:
 4. Does any citation render without its claim? (D3)
 5. Does a change record contain a diff or a validation report? (§6.1)
 6. Is structural validation read anywhere as perspective completeness? (§2.2)
-7. Is `index.db` in git, or treated as a source of truth? (§6.3)
+7. Is there a second representation of the registers or the model anywhere? (§6.3)
 8. Does the write guard hold against `Edit` / `Write` on model files? (§10.1)
 9. Can an ask be produced without `act` or `done_when`? (D8, §9)
 10. Did a second project install and run without editing the submodule? (§11, phase 4)
