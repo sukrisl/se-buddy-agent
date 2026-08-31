@@ -1,11 +1,14 @@
 """Command dispatch for `se-buddy` (spec Sec.7.3).
 
-Phase 2 adds `register`/`write-register`, `write-answer`,
-`baseline`/`write-baseline`. Still missing: `memory`, `perspective`,
-`validate`, `followup`, `plan`, `export`, and every modelling-track write
-verb (`write-propose`/`write-apply`/`write-record`/`write-revert`) - see
-SPEC-COVERAGE.md for which of those are genuinely unassigned to any phase
-in the spec's own phasing table, versus scoped to Phase 3.
+Phase 2 (plus its second pass) adds `register`/`write-register`,
+`write-answer`, `baseline`/`write-baseline`, and `memory`/`write-memory`
+(principles/viewpoints/glossary/assumptions/decisions - `knowledge` is
+read-only here, populated only via `write-answer`). Still missing:
+`perspective`, `validate`, `followup`, `plan`, `export`, and every
+modelling-track write verb (`write-propose`/`write-apply`/`write-record`/
+`write-revert`) - see SPEC-COVERAGE.md for which of those are genuinely
+unassigned to any phase in the spec's own phasing table, versus scoped to
+Phase 3.
 
 Every `write-*` verb is TTY-gated (spec Sec.2.3, `se_buddy.gate`) - it
 will refuse when run from here, or from any other non-interactive shell.
@@ -21,12 +24,14 @@ from se_buddy.commands import (
     asks,
     baseline,
     inspect,
+    memory,
     register,
     search,
     show,
     trace,
     write_answer,
     write_baseline,
+    write_memory,
     write_register,
 )
 
@@ -56,9 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
         asks,
         register,
         baseline,
+        memory,
         write_register,
         write_answer,
         write_baseline,
+        write_memory,
     ):
         module.add_parser(sub)
     return parser

@@ -1,6 +1,6 @@
 ---
 name: project-init
-description: Scaffold a new project's profile (profile.yaml, domain.md, viewpoints.yaml, principles.yaml) and gate on its completeness. Scaffolds only - filling in content still needs the write path (see Authority constraints).
+description: Scaffold a new project's profile (profile.yaml, domain.md, viewpoints.yaml, principles.yaml) and gate on its completeness.
 ---
 
 # project-init
@@ -35,12 +35,12 @@ the model paths for `profile.yaml`.
    inert template text into `se-buddy/profile.yaml`, `domain.md`,
    `viewpoints.yaml`, `principles.yaml`. Refuses to overwrite an existing
    file unless the engineer explicitly asks to replace it.
-3. Tell the engineer plainly: these are skeletons with placeholders, not a
-   completed profile. `profile.yaml`'s four fields (`model_path`,
-   `aird_path`, `capella_version`, `project_name`), a real viewpoint with
-   `design_rules` and a `priority`, and the domain pack's six sections
-   (spec Sec.5.4) all still need real content, supplied and committed by
-   the engineer.
+3. Tell the engineer plainly these are skeletons with placeholders, not a
+   completed profile, and that two different things happen next: they
+   hand-edit `profile.yaml`'s four fields and `domain.md`'s six sections
+   themselves (spec Sec.5.4) and commit the result - no verb writes
+   either of those - while a real viewpoint or principle goes through
+   `write memory viewpoints`/`write memory principles` once drafted.
 4. Run `se-buddy doctor` (or `se-buddy asks`) to show what's still open as
    `SUPPLY` asks - this is the actual completeness gate (spec Sec.5.3),
    and it stays open until the engineer has filled the skeletons in.
@@ -55,9 +55,11 @@ needed - always ending in that ask block (D8), never a bare "done."
 
 ## Commands used
 
-`se-buddy doctor`, `se-buddy asks`. Scaffolding itself is not yet a CLI
-verb (spec Sec.7.3 does not name one for it) - it is invoked as part of
-this skill's own procedure, backed by `se_buddy.scaffold`.
+`se-buddy doctor`, `se-buddy asks`, `se-buddy write memory viewpoints`/
+`write memory principles` (drafted by the agent, run by the engineer).
+Scaffolding itself is not a CLI verb (spec Sec.7.3 does not name one for
+it) - it is invoked as part of this skill's own procedure, backed by
+`se_buddy.scaffold`.
 
 ## Authority constraints
 
@@ -68,14 +70,19 @@ the agent asserts as true, the same carve-out spec Sec.7.3 gives
 true"). It refuses to overwrite an existing profile by default, so it
 cannot silently clobber the engineer's own edits.
 
-**Filling the skeletons with real content is a different, gated action.**
-A real viewpoint, a real principle, a real project name are all
-`write memory` (spec Sec.7.3), which is TTY-gated and does not exist until
-Phase 2. Until then, this skill scaffolds and reports gaps; it does not,
-and must not, write real profile content on the engineer's behalf even if
-they state it in conversation - present what they said back to them and
-say plainly that recording it needs a step this installed phase doesn't
-have yet.
+**Two different paths for filling the skeletons in, and they don't mix.**
+A real viewpoint or a real principle is `write memory viewpoints`/
+`write memory principles` (spec Sec.7.3) - TTY-gated, same as every other
+write verb: the agent drafts the content, the engineer runs the write
+themselves. `profile.yaml`'s four fields (`model_path`, `aird_path`,
+`capella_version`, `project_name`) and `domain.md`'s six sections are
+**not** a `write memory` domain at all - spec Sec.7.3's domain list is
+`principles, viewpoints, glossary, assumptions, knowledge, decisions`,
+and neither `profile.yaml` nor `domain.md` is on it. Those two are always
+hand-edited by the engineer directly, in their own editor, and committed
+themselves - this skill's job for them is only to scaffold the skeleton
+and report what's still missing, never to write their content through any
+verb.
 
 ## Failure handling
 
@@ -83,8 +90,11 @@ If the engineer asks project-init to "just fill in" the profile from
 context clues (an existing README, a model file's own metadata), refuse -
 that is inventing project-specific content the agent has no authority to
 assert (spec Sec.5: nothing project-specific belongs in agent-authored
-content), and it is exactly the kind of write the TTY gate exists to
-prevent from happening quietly.
+content). For `profile.yaml`/`domain.md`, say plainly that these are
+hand-edited, not agent-written, regardless of what's said in conversation.
+For `viewpoints.yaml`/`principles.yaml`, draft the content and tell the
+engineer to run `write memory` themselves - never write it on their
+behalf even if they've clearly stated what they want.
 
 ## Interaction with other skills
 

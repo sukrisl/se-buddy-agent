@@ -27,9 +27,10 @@ whole baseline viewpoint set.
 ## Context required
 
 `se-buddy/viewpoints.yaml` (the project's recorded viewpoints, PROFILE
-layer - readable once `project-init` + `write memory` have populated it,
-Phase 2+) and `se-buddy/domain.md`'s "Baseline viewpoints" section (spec
-Sec.5.4 - the domain's starting set, which a project copies and edits).
+layer - scaffolded empty by `project-init`, populated via `write memory
+viewpoints`) and `se-buddy/domain.md`'s "Baseline viewpoints" section
+(spec Sec.5.4 - the domain's starting set, which a project copies and
+edits).
 
 ## Procedure
 
@@ -56,16 +57,16 @@ priority, and - for a specific boundary - which one is decisive and why.
 
 ## Commands used
 
-`se-buddy memory viewpoints` (Phase 2+, once `write memory` exists to
-populate it - until then, read `se-buddy/viewpoints.yaml` directly as
-scaffolded by `project-init`).
+`se-buddy memory viewpoints` (read); `se-buddy write memory viewpoints`
+(write, drafted by the agent, run by the engineer).
 
 ## Authority constraints
 
 Read-only; automatic authority (C05). Recording a *new* viewpoint is
-`SUPPLY` (D8), landing in `viewpoints.yaml` via `write memory` - TTY-gated,
-Phase 2+. This skill surfaces what's missing; it does not invent content
-to fill the gap.
+`SUPPLY` (D8): the agent drafts `name`/`design_rules`/`priority` and the
+engineer runs `write memory viewpoints` themselves, interactively (spec
+Sec.2.3) - this skill surfaces what's missing and drafts the content; it
+never runs the write itself.
 
 ## Failure handling
 

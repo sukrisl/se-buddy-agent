@@ -4,6 +4,44 @@ Format and purpose: spec Sec.5.5. Newest first, append-only, never rewritten.
 
 ---
 
+## AC-0004 — 2026-08-31 — Phase 2, second pass: write memory
+
+```
+surface   cli, schema
+breaking  no
+action    none
+why       write_answer's DECIDE/SUPPLY refusal (AC-0003) pointed engineers
+          at a command that didn't exist, and arch-decide/project-init's
+          ADR-filing and viewpoint/principle completion had nowhere to
+          land - closed on the user's explicit decision rather than left
+          for Phase 3, since it was already a real, shipped bug
+```
+
+Adds `se-buddy write-memory <domain> d.yaml` for `principles`,
+`viewpoints`, `glossary`, `assumptions`, `decisions` (`src/se_buddy/
+commands/write_memory.py`, `memory_domains.py`, `decisions.py`), the
+matching read verb `se-buddy memory <domain>`, and the ADR-specific schema
+(`question`/`context`/`alternatives`/`chosen_option`/`rationale`/
+`consequences`/`evidence`/`authority`, with `authority` enforced per spec
+Sec.9). `knowledge` is deliberately not a `write memory` domain - every
+`knowledge.yaml` row needs the `ASK-nnnn` it answers (spec Sec.9), which
+only `write answer` supplies.
+
+TTY-gated, same pattern as every other write verb. Verified live: wrote a
+real viewpoint and a real ADR (bypassing the gate directly, per spec
+Sec.2.3's testing philosophy - never `run()`), read both back through
+`se-buddy memory`, and confirmed `doctor`'s open-ask count dropped and the
+viewpoints `SUPPLY` ask auto-resolved on the next `se-buddy asks` run.
+`arch-decide`, `project-init` and `arch-principles`'s `SKILL.md` files
+were updated to drop their "pending" language now that the write step
+they each end in is real.
+
+One phasing-table gap remains open, left unbuilt on the user's explicit
+decision: `se-buddy perspective [<layer>]` (Sec.7.2/Sec.7.3). Nothing
+currently depends on it. See `SPEC-COVERAGE.md`.
+
+---
+
 ## AC-0003 — 2026-08-31 — Phase 2: registers, write register/answer/baseline, the TTY gate
 
 ```

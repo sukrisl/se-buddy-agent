@@ -28,8 +28,8 @@ call from another skill checking project style.
 ## Context required
 
 `se-buddy/principles.yaml` (may be empty, must exist and explicitly
-acknowledge that - spec Sec.5.3) and, once records exist (Phase 2+),
-`assumptions.yaml`/`knowledge.yaml`.
+acknowledge that - spec Sec.5.3) and `se-buddy/assumptions.yaml`/
+`knowledge.yaml`.
 
 ## Procedure
 
@@ -54,17 +54,21 @@ assumption with its path to becoming a fact.
 
 ## Commands used
 
-`se-buddy memory principles`, `se-buddy memory assumptions` (Phase 2+ for
-the latter, once `knowledge.yaml`/`assumptions.yaml` exist to read).
+`se-buddy memory principles`, `se-buddy memory assumptions`,
+`se-buddy write memory principles`/`write memory assumptions` (drafted by
+the agent, run by the engineer - spec Sec.2.3).
 
 ## Authority constraints
 
-Read-only; automatic authority (C05). Recording a new principle is
-`SUPPLY`, landing in `principles.yaml` via `write memory` - TTY-gated,
-Phase 2+. Recording an assumption the agent had to make is automatic
-(it's the agent's own epistemic bookkeeping, per C01), but promoting an
-assumption to a confirmed fact is the engineer's `CONFIRM`, not this
-skill's to grant itself.
+Read-only; automatic authority (C05). Recording a new principle or
+assumption is `SUPPLY`: the agent drafts the row
+(`statement`/`provenance`/`status`) and the engineer runs `write memory
+principles`/`write memory assumptions` themselves, interactively - the
+agent never runs it. Recording that the agent *had* to make an assumption
+in the first place (the C01 labelling itself, in conversation) is
+automatic; only *persisting* it to `assumptions.yaml` is gated. Promoting
+an assumption to a confirmed fact is the engineer's `CONFIRM` (via
+`write answer`), not this skill's to grant itself.
 
 ## Failure handling
 

@@ -14,15 +14,16 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 
-from se_buddy.schemas import RECORD_KINDS, REGISTER_PREFIXES
+from se_buddy.schemas import MEMORY_DOMAIN_PREFIXES, RECORD_KINDS, REGISTER_PREFIXES
 
 _ID_RE_TEMPLATE = r"({kind}-\d+)"
 
 # Every prefix next_id/allocate_id will accept: narrative-record kinds
-# (spec Sec.9) plus each register's row prefix (spec Sec.6.2). Kept as one
-# set here since the allocator itself doesn't care which of the two a
-# prefix belongs to - only that it's a real, known one.
-_KNOWN_KINDS = RECORD_KINDS | set(REGISTER_PREFIXES.values())
+# (spec Sec.9), each register's row prefix (spec Sec.6.2), and each
+# stable-id `write memory` domain's prefix (principles, assumptions). Kept
+# as one set here since the allocator itself doesn't care which of the
+# three a prefix belongs to - only that it's a real, known one.
+_KNOWN_KINDS = RECORD_KINDS | set(REGISTER_PREFIXES.values()) | set(MEMORY_DOMAIN_PREFIXES.values())
 
 
 def next_id(kind: str, existing_ids: Iterable[str]) -> str:

@@ -1,6 +1,6 @@
 ---
 name: arch-decide
-description: Settle an architectural question between stated options, and produce the ADR that records it. Full procedure is spec-complete; recording is not yet wired up (see Authority constraints).
+description: Settle an architectural question between stated options, and file the ADR that records it.
 ---
 
 # arch-decide
@@ -62,25 +62,28 @@ drafted ADR body, ready for the engineer's decision.
 
 **An architectural decision is never the agent's (C08, spec Sec.2.3): a
 human `DECIDE`s.** Filing the resulting record is `se-buddy write memory
-decisions <file>` (spec Sec.7.3), which is TTY-gated and requires the
-`authority` field - and that write path does not exist yet in this
-installed phase (it arrives with Phase 2's TTY gate). Until then: draft
-the ADR body in full as described above, present it directly in
-conversation, and tell the engineer plainly that formal recording is
-pending - do not claim the ADR has been filed, and do not skip drafting it
-just because filing isn't automated yet. The reasoning is exactly as
-useful to the engineer either way; only the persistence step is missing.
+decisions <file>` (spec Sec.7.3), TTY-gated and enforcing the `authority`
+field - **the agent never runs this itself.** It drafts the ADR body in
+full (everything except `authority`, which only the engineer's own words
+can fill - spec Sec.2.3), and the engineer runs the write, interactively,
+in their own terminal, once they've actually decided. Never present an ADR
+as filed until the engineer confirms they ran it - filing an ADR is
+allocating a permanent `ADR-nnnn` and writing a file that is never
+rewritten, only superseded (spec Sec.6.1), so there is no "undo" if this
+runs ahead of a real decision.
 
 ## Failure handling
 
 If the "decision" turns out to be fully determined already (D5's
 converse), stop and say so instead of manufacturing two options where only
-one is real.
+one is real. If `write memory decisions` refuses because the drafted body
+is missing a required field beyond `authority`, that's the ADR draft
+itself being incomplete (spec Sec.9) - fix the draft, don't strip the
+field to get past validation.
 
 ## Interaction with other skills
 
 Consumes `arch-viewpoint` (option evidence), `arch-review`,
 `arch-perspective`'s findings. `write-plain` tightens the final draft
-before presenting it. Once Phase 2 lands, `write memory` becomes the
-literal next step after this skill's output - nothing about the procedure
-above changes, only whether the ADR gets persisted.
+before presenting it. `write memory decisions` is the literal next step
+after this skill's output.

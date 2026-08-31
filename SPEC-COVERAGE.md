@@ -5,12 +5,15 @@ For each requirement: where it lives, whether it is **enforced** (code
 refuses the wrong behaviour) or **instructed** (only asked for), and — if
 instructed — whether it could be enforced and why it is not yet.
 
-This file grows one phase at a time (spec Sec.11). It now covers Phase 0
-(bootstrap), Phase 1 (the read path), and Phase 2 (registers, `write
-register`, `write answer`, `write baseline`, and the TTY gate). Requirements
-that need the modelling write path or a second installed project are out
-of scope until Phase 3/4 — listed at the bottom as not-yet-applicable, not
-as failing.
+This file grows one phase at a time (spec Sec.11), plus at least one
+documented second pass within a phase when something surfaced during
+implementation was worth resolving before moving on (Phase 2's below).
+It now covers Phase 0 (bootstrap), Phase 1 (the read path), and Phase 2
+(registers, `write register`, `write answer`, `write baseline`, the TTY
+gate, and — added in a second pass once the gap below was found —
+`write memory`). Requirements that need the modelling write path or a
+second installed project are out of scope until Phase 3/4 — listed at the
+bottom as not-yet-applicable, not as failing.
 
 ## Phase 0 requirements
 
@@ -55,19 +58,21 @@ this repo fresh on Windows.
 | 13 | The model is parsed once per session, cached keyed on file hash | Sec.6.3 | — | **Not built, on evidence, not by default.** `MelodyModel` does not survive `pickle` (confirmed: `TypeError: cannot pickle 'lxml.etree._Element' object`), and a parallel serializable index would itself violate Sec.6.3's "every fact has exactly one representation." Cold parse on the one real fixture measured (1,484 elements, ~2.4 MB `.aird`) is ~250–370ms. `hash_model_files()` is still built (needed by Sec.10.2's future drift check) but nothing caches the parsed object across process invocations. This is direct evidence for spike 6 (bin/ vs MCP, Sec.12), not routed around |
 | 14 | `inspect`/`search`/`show`/`trace`/`asks`, each bounding output and reporting truncation | Sec.7.3, Sec.6.3, D6 | [src/se_buddy/commands/](src/se_buddy/commands/) | **Enforced** — `--limit`/`--depth` on every command that can return an unbounded set; truncation always stated in the output. Verified against the real fixture: real per-layer counts, a real UUID resolving through `show`, a real 2-hop reverse-reference closure through `trace` (a Logical→Physical→Configuration-item realization chain) |
 | 15 | Behavioural elements (functional chains, scenarios, state machines) are retrievable, citable and traceable, with no completeness/well-formedness check run on them | Sec.2.2 | `show`/`trace`'s generic relationship introspection | **Enforced by construction** — `show`/`trace` treat every element generically (no per-class special-casing), so a `FunctionalChain`/`Scenario`/`StateMachine` is handled exactly like a structural element, and no validation layer runs on it because none exists yet at all (Phase 3) |
-| 16 | `project-init` scaffolds `profile.yaml`/`domain.md`/`viewpoints.yaml`/`principles.yaml`, refuses to overwrite, and `doctor` reports what's still missing as `SUPPLY` asks | Sec.5.3 | [skills/project-init/SKILL.md](skills/project-init/SKILL.md), [src/se_buddy/scaffold.py](src/se_buddy/scaffold.py), [src/se_buddy/profile.py](src/se_buddy/profile.py) | **Partially enforced, deliberately.** Scaffolding and the completeness check are both real and tested end-to-end (scaffold → `doctor` → correct `SUPPLY` ask count). Filling the skeletons with real content is `write memory`, TTY-gated, Phase 2 — see the design note below |
+| 16 | `project-init` scaffolds `profile.yaml`/`domain.md`/`viewpoints.yaml`/`principles.yaml`, refuses to overwrite, and `doctor` reports what's still missing as `SUPPLY` asks | Sec.5.3 | [skills/project-init/SKILL.md](skills/project-init/SKILL.md), [src/se_buddy/scaffold.py](src/se_buddy/scaffold.py), [src/se_buddy/profile.py](src/se_buddy/profile.py) | **Enforced**, and now fully closable. Scaffolding and the completeness check were real from Phase 1 (scaffold → `doctor` → correct `SUPPLY` ask count); `write memory viewpoints`/`write memory principles` (added in Phase 2's second pass) now let the engineer actually complete a viewpoint/principle, verified live end-to-end: writing a real viewpoint made its `SUPPLY` ask auto-resolve on the next `se-buddy asks` run. `profile.yaml`'s fields and `domain.md`'s six sections stay permanently hand-edited by design — neither is a `write memory` domain (spec Sec.7.3's domain list doesn't include them) |
 | 17 | `ASK-nnnn` id allocation, `ID (claim)` citation rendering (D3), the D8 ask shape with `act`/`done_when` enforced | Sec.9, Sec.3 | [src/se_buddy/memory.py](src/se_buddy/memory.py), [src/se_buddy/schemas.py](src/se_buddy/schemas.py) | **Enforced**, unit-tested directly. Nothing calls `allocate_id` from a live write command yet since none exist — built now so Phase 2/3 writers have one place to allocate from, not their own copy |
 | 18 | Shared + architecture-track skills (`frame-request`, `retrieve-context`, `trace-rationale`, `write-plain`, `arch-perspective` + one reference per Arcadia perspective, `arch-viewpoint`, `arch-transition`, `arch-review`, `arch-decide`, `arch-principles`, `risk-manage`), referencing C01–C08/D1–D9 rather than restating them | Sec.8.1, Sec.8.2 | [skills/](skills/), [references/cross-cutting-behaviours.md](references/cross-cutting-behaviours.md), [references/deliberation-discipline.md](references/deliberation-discipline.md) | **Instructed** (skill prose, not code) — Sec.8.2's ten-section structure followed in each; each cites C-codes/D-codes rather than restating them. Not mechanically checkable without a linter over the markdown; none written for this phase |
 | 19 | `.claude-plugin/plugin.json` names the plugin so skills auto-discover and namespace as `/se-buddy:<name>` | Sec.5.1 | [.claude-plugin/plugin.json](.claude-plugin/plugin.json) | Structural. Not yet exercised end-to-end as a real submodule install (that proof is Phase 4's explicit job, spec Sec.11) |
 
-**Design note, updated in Phase 2 — one of two pending write steps is now
-real.** Phase 1 flagged that `arch-decide` (files an ADR) and `risk-manage`
-(tracks/closes a register row) both describe a write step that didn't
-exist yet. `risk-manage`'s is now real: `write register` exists, and its
-`SKILL.md` was updated in Phase 2 to say so (its "Authority constraints"
-section no longer says "pending" — it says the agent drafts the row and
-the engineer runs the write themselves, per the TTY gate). `arch-decide`'s
-ADR-filing still isn't real — see the Phase 2 gaps below.
+**Design note, updated in Phase 2's second pass — both pending write steps
+are now real.** Phase 1 flagged that `arch-decide` (files an ADR) and
+`risk-manage` (tracks/closes a register row) both describe a write step
+that didn't exist yet. `risk-manage`'s became real in Phase 2's first pass
+(`write register`). `arch-decide`'s became real in the second pass
+(`write memory decisions`, added specifically to close this gap — see
+"Phase 2, second pass" below). Both `SKILL.md` files were updated to say
+so: the agent drafts the content, the engineer runs the write themselves,
+per the TTY gate — neither skill claims something was filed until the
+engineer confirms they ran it.
 
 ## Phase 2 requirements
 
@@ -76,7 +81,7 @@ ADR-filing still isn't real — see the Phase 2 gaps below.
 | 20 | **The TTY gate**: every write verb refuses unless run at a genuine interactive terminal, no bypass parameter of any kind | Sec.2.3 | [src/se_buddy/gate.py](src/se_buddy/gate.py) | **Enforced.** Verified live: `write-register`, `write-answer` and `write-baseline`, invoked directly by me through both the POSIX and (transitively, same code path) Windows launcher, all refused with the same clear message — my own shell has no interactive stdin/stdout, so this is the real refusal path, not a simulated one. The positive path (a human confirming) cannot be verified by me and is not claimed as verified — spec Sec.2.3 accepts exactly this limitation ("cannot run non-interactively — not in CI, and not in the agent's own test suite"). The second defence layer (`PreToolUse` hook on `Bash`, Sec.10.1) is Phase 3; this phase ships the CLI-side half only |
 | 21 | Register schemas (base fields + per-register extras), one file per register, add/update-by-id | Sec.6.2, Sec.9 | [src/se_buddy/schemas.py](src/se_buddy/schemas.py), [src/se_buddy/registers.py](src/se_buddy/registers.py) | **Enforced** for `id`/`claim`/`status` on every register and `reason`/`decided_by` on `not-carried` (spec Sec.9's explicit wording); other fields are warned-not-rejected, matching Sec.9's own enforced/instructed split. Per-register extra fields beyond `not-carried`'s spelled-out shape are a documented completion (see the note below), not literal spec text |
 | 22 | `se-buddy write register <name> row.yaml` — the only route into a register | Sec.6.2, Sec.7.3 | [src/se_buddy/commands/write_register.py](src/se_buddy/commands/write_register.py) | **Enforced.** TTY-gated (item 20); the write logic (`registers.upsert_row`) is called directly by unit tests, never through the gate, per Sec.2.3 |
-| 23 | `se-buddy write answer ASK-nnnn a.yaml` dispatches by act: `CONFIRM`/`REVIEW` → `knowledge.yaml`; `PRIORITISE` → `sequence:` on named asks; `DRAW` → refuses (no followup checklist can exist before Phase 3); `DECIDE`/`SUPPLY` → refuse, name `write memory`/`write register` | Sec.7.3 | [src/se_buddy/commands/write_answer.py](src/se_buddy/commands/write_answer.py) `answer_ask()` | **Enforced**, all six branches unit-tested directly (CONFIRM, REVIEW, PRIORITISE, DRAW-refused, DECIDE-refused, SUPPLY-refused), plus `AUTHORISE`-refused — not in Sec.7.3's literal dispatch table, added because it follows directly from D8's own act definition and Sec.7.3 gives no other verb `write answer` could plausibly hand it to |
+| 23 | `se-buddy write answer ASK-nnnn a.yaml` dispatches by act: `CONFIRM`/`REVIEW` → `knowledge.yaml`; `PRIORITISE` → `sequence:` on named asks; `DRAW` → refuses (no followup checklist can exist before Phase 3); `DECIDE`/`SUPPLY` → refuse, name `write memory`/`write register` | Sec.7.3 | [src/se_buddy/commands/write_answer.py](src/se_buddy/commands/write_answer.py) `answer_ask()` | **Enforced**, all six branches unit-tested directly (CONFIRM, REVIEW, PRIORITISE, DRAW-refused, DECIDE-refused, SUPPLY-refused), plus `AUTHORISE`-refused — not in Sec.7.3's literal dispatch table, added because it follows directly from D8's own act definition and Sec.7.3 gives no other verb `write answer` could plausibly hand it to. **Fixed in the second pass**: the DECIDE/SUPPLY refusal messages name `write memory`/`write register` — both now real commands (item 27 below), where at first-pass end `write memory` didn't exist and the message pointed nowhere |
 | 24 | `se-buddy trace <id>` extended across model **and** registers | Sec.11 | [src/se_buddy/commands/trace.py](src/se_buddy/commands/trace.py) | **Enforced.** Verified live end-to-end against the real fixture: a real risk row linking a real model uuid shows up under `trace <uuid>` ("cited by 1 register row(s)"), and `trace <row-id>` resolves the row and its links in the other direction |
 | 25 | `se-buddy write baseline <name>`: model hash + register row statuses + open ask ids + date, and a git tag at the same commit | Sec.6.4 | [src/se_buddy/baseline.py](src/se_buddy/baseline.py), [src/se_buddy/commands/write_baseline.py](src/se_buddy/commands/write_baseline.py) | **Enforced.** TTY-gated; manifest content unit-tested directly, and the git-tag step verified live in a throwaway repo (never the agent repo itself, and never pushed anywhere) |
 | 26 | An ask raised in one session is closed (or auto-resolved) in another | Sec.11's Phase 2 gate | [src/se_buddy/ask_store.py](src/se_buddy/ask_store.py) | **Enforced, via a documented addition** — see the design note below. Verified live: ran `se-buddy asks` twice against a fresh scaffolded project, confirmed the four `SUPPLY` ids were identical across both runs, then fixed one gap (`domain.md`) and confirmed its ask auto-resolved on the next run while keeping its original id and a historical `answered: auto-resolved` record |
@@ -108,28 +113,42 @@ to make `risk-manage`'s cycle and the other registers actually usable —
 documented here as a completion, not spec text, per Sec.13's own review
 discipline.
 
-## Two gaps found in the phasing table itself (Sec.11)
+## Phase 2, second pass — the `write memory` gap, resolved
 
-Neither of these is resolved unilaterally — both are flagged for whoever
-owns the spec to assign to a phase:
+The gap below was found while writing up Phase 2, and — on the user's
+explicit decision, asked before implementing — closed in this same phase
+rather than left for Phase 3 or later, since it was already causing a
+real, shipped bug (item 23 above).
 
-1. **`write memory`** (writes `principles.yaml`/`viewpoints.yaml`/
-   `glossary.yaml`/`assumptions.yaml`/`knowledge.yaml`/`decisions/`, per
-   Sec.7.3's CLI table) does not appear in Phase 2's *or* Phase 3's content
-   list in Sec.11, even though Sec.7.3 groups it with `write register`/
-   `write answer`/`write baseline` under the identical TTY-gated umbrella,
-   and Phase 3's explicit content is unambiguously about the *model*
-   write path (`write propose`/`plan`/`write apply`/`write record`/`write
-   revert`), which `write memory` has nothing to do with. Consequence:
-   `arch-decide`'s ADR-filing and `project-init`'s viewpoint/principle
-   completion both remain pending past Phase 2, not because either skill
-   is incomplete, but because the verb they both end in has no assigned
-   phase at all.
-2. **`se-buddy perspective [<layer>]`** (Sec.7.2/Sec.7.3's dedicated
-   per-perspective completeness command) is likewise absent from every
-   phase's content list. Not built in Phase 2 — `arch-perspective`'s skill
-   already works via `inspect`/`search`/`show`/`trace` without it, so
-   nothing is blocked, but the command itself remains unbuilt.
+| # | Requirement | Spec | Where | Status |
+| - | --- | --- | --- | --- |
+| 27 | `se-buddy write memory <domain> d.yaml` for `principles`/`viewpoints`/`glossary`/`assumptions`/`decisions` (not `knowledge` — see the design note below) | Sec.7.3 | [src/se_buddy/commands/write_memory.py](src/se_buddy/commands/write_memory.py), [src/se_buddy/memory_domains.py](src/se_buddy/memory_domains.py), [src/se_buddy/decisions.py](src/se_buddy/decisions.py) | **Enforced.** TTY-gated, same pattern as every other write verb; the dispatch/validation logic (`write_content()`) is unit-tested directly for all five domains plus the `knowledge`-is-rejected case, never through the gate. Verified live end-to-end: wrote a real viewpoint and a real ADR (bypassing the gate directly, per Sec.2.3's testing philosophy), read both back via `se-buddy memory viewpoints`/`memory decisions`, and confirmed `doctor`'s open-`SUPPLY`-ask count dropped and the viewpoints ask auto-resolved |
+| 28 | An ADR's ID is allocated once, never reused, never rewritten — a correction is a new ADR citing `supersedes` | Sec.6.1, Sec.9 | [src/se_buddy/decisions.py](src/se_buddy/decisions.py) `file_adr()` | **Enforced.** Rejects an input already carrying an `id` (unit-tested); `authority` is enforced, every other ADR field is required-but-warned, matching Sec.9's own enforced/instructed split for records |
+| 29 | Principles/viewpoints/glossary/assumptions are the same PROFILE/MEMORY-layer distinction as before (Sec.5.2), never conflated with a register or with `knowledge.yaml` | Sec.5.2, Sec.9 | [src/se_buddy/memory_domains.py](src/se_buddy/memory_domains.py) | **Enforced by construction** — a separate module from `se_buddy.registers`, even though the row-upsert shape is structurally similar, specifically so the two families can't be accidentally merged into one write path later |
+
+**Design note — why `write memory` doesn't cover `knowledge`.** Spec
+Sec.7.3's comment lists `knowledge` among `write memory`'s domains, but
+Sec.9's `knowledge.yaml` row schema requires "the `ASK-nnnn` answered...
+the ask id is required" — and the only place an ask id legitimately comes
+from is `write answer`'s `CONFIRM`/`REVIEW` path. A `write memory
+knowledge` invocation would therefore always fail Sec.9's own enforced
+field, making it structurally unusable as a distinct route. Read as an
+inconsistency between Sec.7.3's comment and Sec.9's schema rather than two
+independently intended writers, and `write memory` implements the
+schema-consistent reading.
+
+**Both `arch-decide` and `project-init`/`arch-principles` are unblocked
+now** — see the design note above the Phase 2 requirements table, and each
+skill's own updated `SKILL.md`.
+
+## One gap still open in the phasing table (Sec.11)
+
+**`se-buddy perspective [<layer>]`** (Sec.7.2/Sec.7.3's dedicated
+per-perspective completeness command) is absent from every phase's
+content list. Left unbuilt on the user's explicit decision (asked
+alongside the `write memory` question above) — `arch-perspective`'s skill
+already works via `inspect`/`search`/`show`/`trace` without it, so
+nothing is currently blocked. Revisit if a real need shows up.
 
 ## Not yet applicable (later phases)
 
@@ -146,9 +165,10 @@ is only fully answerable once `write apply` exists (Phase 3), but its
 underlying mechanism was tested now, on every write verb that currently
 exists.** The question's own prescribed attack — "allowlist the CLI... and
 invoke [it] from Bash" — is exactly what happened live in this phase:
-`write-register`, `write-answer` and `write-baseline` were all invoked
-directly from this Bash tool, and all three refused. That doesn't close
-the question (it reopens the moment `write apply` exists and needs the
-same check run against it specifically, plus Phase 3's second defence
-layer), but it's real, positive evidence that the gate mechanism itself
-holds under the exact attack Sec.13 names, not a promise deferred to later.
+`write-register`, `write-answer`, `write-baseline` and (added in the
+second pass) `write-memory` were all invoked directly from this Bash tool,
+and all four refused. That doesn't close the question (it reopens the
+moment `write apply` exists and needs the same check run against it
+specifically, plus Phase 3's second defence layer), but it's real,
+positive evidence that the gate mechanism itself holds under the exact
+attack Sec.13 names, not a promise deferred to later.

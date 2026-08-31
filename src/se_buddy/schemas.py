@@ -1,9 +1,8 @@
 """Record and ask schemas (spec Sec.9).
 
-Pure validation logic, no I/O. `se-buddy write register`/`write answer`
-(Phase 2) and `write memory` (not yet scoped to any phase - see
-SPEC-COVERAGE.md) all validate against the shapes defined here rather than
-each writer inventing its own.
+Pure validation logic, no I/O. `se-buddy write register`, `write answer`
+and `write memory` all validate against the shapes defined here rather
+than each writer inventing its own.
 """
 
 from __future__ import annotations
@@ -59,6 +58,32 @@ REGISTER_EXTRA_FIELDS = {
     "verification": ("method", "requirement_id"),
     "not-carried": ("source_element_id", "from_perspective", "to_perspective", "reason", "decided_by"),
 }
+
+# `write memory` domains whose rows get a stable, citable id (spec Sec.9:
+# "Principle / assumption / knowledge | provenance, status | required").
+# `viewpoints` and `glossary` are deliberately absent here - they're keyed
+# by a natural name/term instead (spec Sec.9 asks for `design_rules`/
+# `priority` on a viewpoint and nothing that implies an opaque id).
+# `knowledge` is absent too: every knowledge.yaml row must carry the
+# `ASK-nnnn` it answers (spec Sec.9), which only `write answer`'s
+# CONFIRM/REVIEW path supplies - see SPEC-COVERAGE.md's design note.
+MEMORY_DOMAIN_PREFIXES = {
+    "principles": "PRIN",
+    "assumptions": "ASSUME",
+}
+
+# An ADR's fields beyond the base record (spec Sec.9's ADR row). `authority`
+# is the one enforced field - "an ADR cannot be filed as the agent's."
+ADR_EXTRA_FIELDS = (
+    "question",
+    "context",
+    "alternatives",
+    "chosen_option",
+    "rationale",
+    "consequences",
+    "evidence",
+    "authority",
+)
 
 
 class SchemaError(ValueError):
@@ -157,4 +182,71 @@ def validate_record_base(data: dict) -> ValidationResult:
         errors.append(f"tier {data.get('tier')!r} must be lookup, judgement or decision")
     if "supersedes" not in data:
         errors.append("supersedes is required on every record, even if empty (spec Sec.9)")
+    return ValidationResult(tuple(errors))
+
+
+def validate_adr(data: dict) -> ValidationResult:
+    """Validates an ADR: the base record fields, plus Sec.9's ADR row.
+
+    `authority` is enforced - "an ADR cannot be filed as the agent's"
+    (spec Sec.9, spec Sec.2.3) - every other ADR-specific field is
+    required but not enforced, matching the base record's own treatment.
+    """
+    base = validate_record_base(data)
+    errors = list(base.errors)
+    warnings = list(base.warnings)
+
+    for field in ADR_EXTRA_FIELDS:
+        if data.get(field):
+            continue
+        if field == "authority":
+            errors.append(
+                "authority is required on every ADR (spec Sec.9) - "
+                "an ADR cannot be filed as the agent's"
+            )
+        else:
+            warnings.append(f"{field} is required but not enforced on an ADR (spec Sec.9)")
+
+    return ValidationResult(tuple(errors), tuple(warnings))
+
+
+def validate_memory_row(domain: str, data: dict) -> ValidationResult:
+    """Validates a principles/assumptions row (spec Sec.9: "Principle /
+    assumption / knowledge | provenance, status | required").
+    """
+    if domain not in MEMORY_DOMAIN_PREFIXES:
+        raise ValueError(f"unknown memory domain {domain!r}; expected one of {sorted(MEMORY_DOMAIN_PREFIXES)}")
+
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not data.get("statement"):
+        errors.append(f"statement is required on every {domain} row")
+    for field in ("provenance", "status"):
+        if not data.get(field):
+            warnings.append(f"{field} is required but not enforced (spec Sec.9)")
+
+    return ValidationResult(tuple(errors), tuple(warnings))
+
+
+def validate_viewpoint(data: dict) -> ValidationResult:
+    """Sec.9: "Viewpoint | design_rules, priority | rejected without both -
+    a viewpoint that cannot decide a boundary is not a viewpoint."
+    """
+    errors: list[str] = []
+    if not data.get("name"):
+        errors.append("name is required to key a viewpoint")
+    if not data.get("design_rules"):
+        errors.append("design_rules is required on every viewpoint (spec Sec.9: rejected without it)")
+    if data.get("priority") is None:
+        errors.append("priority is required on every viewpoint (spec Sec.9: rejected without it)")
+    return ValidationResult(tuple(errors))
+
+
+def validate_glossary_entry(data: dict) -> ValidationResult:
+    errors: list[str] = []
+    if not data.get("term"):
+        errors.append("term is required to key a glossary entry")
+    if not data.get("definition"):
+        errors.append("definition is required on every glossary entry")
     return ValidationResult(tuple(errors))
