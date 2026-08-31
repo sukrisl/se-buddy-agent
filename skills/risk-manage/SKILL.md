@@ -1,6 +1,6 @@
 ---
 name: risk-manage
-description: Identify, assess and treat a risk against both registers (system and project). Tracking and closing need register writes that are not yet wired up (see Authority constraints).
+description: Identify, assess, treat, track and close a risk against both registers (system and project) - the full cycle, backed by real register writes.
 ---
 
 # risk-manage
@@ -30,8 +30,10 @@ project. If unclear, ask: does this drive an architectural decision
 
 ## Context required
 
-`registers/risks-system.yaml` and `registers/risks-project.yaml` (Phase
-2+, once registers exist to read/write).
+`se-buddy/registers/risks-system.yaml` and
+`se-buddy/registers/risks-project.yaml` - readable via `se-buddy register`,
+written via `se-buddy write register` (spec Sec.6.2: "the only route" into
+a register).
 
 ## Procedure
 
@@ -42,39 +44,51 @@ project. If unclear, ask: does this drive an architectural decision
 3. **Treat**: propose a treatment (avoid/mitigate/transfer/accept), and
    whether it implies an architectural change (route to `arch-decide`/
    modelling-track skills) or a process change (stays a project-risk
-   treatment).
-4. **Track / Close**: these are register mutations - see Authority
-   constraints below.
+   treatment). Draft the row: `claim`, `status`, `owner`, `provenance`,
+   `links` (to the model elements the risk concerns), `likelihood`,
+   `impact`, `treatment`.
+4. **Track**: once the engineer authorises the write (TTY gate,
+   Sec.2.3 - the agent drafts the row content and presents it; a human
+   runs `se-buddy write register risks-system row.yaml` themselves,
+   directly, in their own terminal), the row exists with a stable id and
+   `status` reflects where the risk actually is (`identified` ->
+   `assessing` -> `treating` -> ...).
+5. **Close**: the engineer runs `write register` again with the same `id`
+   and `status: closed` - `upsert_row` updates the existing row in place
+   rather than creating a duplicate (spec Sec.6.2: it's still the same
+   risk).
 
 ## Outputs
 
 A risk entry in D8-adjacent shape: what it is, which register, assessment,
-proposed treatment, and (D8) a `SUPPLY` or `DECIDE` ask for whatever needs
-the engineer's input to proceed.
+proposed treatment - handed to the engineer as row content ready for
+`write register`, plus (D8) a `SUPPLY` or `DECIDE` ask for anything that
+needs the engineer's judgement before the row can be written at all
+(e.g. which treatment to pick).
 
 ## Commands used
 
 `se-buddy register risks-system`, `se-buddy register risks-project`
-(read); `se-buddy write register` (Phase 2+, TTY-gated).
+(read); `se-buddy write register` (write, TTY-gated); `se-buddy trace
+<id>` to check what a risk's `links` connect to, and what registers cite a
+given model element.
 
 ## Authority constraints
 
 Identify and assess are automatic-authority reasoning (C05) - no gate.
-**Treat, track, and close all end in a register row**, and
-`se-buddy write register` is TTY-gated (spec Sec.6.2: "the only route" into
-a register) and does not exist yet in this installed phase (Phase 2). Until
-then: complete identify/assess/treat in full and present the row content
-directly to the engineer, stating plainly that recording it is pending -
-do not claim a risk has been logged when it hasn't been. This mirrors
-`arch-decide`'s handling of its own pending write step.
+Treat, track and close all end in a register write, and **the agent never
+runs `write register` itself** - it drafts the row and the engineer runs
+the write, interactively, themselves (spec Sec.2.3's TTY gate: the write
+verb structurally cannot succeed from an agent's own tool call). Never
+present a risk as logged, tracked, or closed until the engineer confirms
+they actually ran the write.
 
 ## Failure handling
 
 Never write a system risk into `risks-project.yaml` or vice versa to avoid
 deciding which register applies (spec Sec.6.2's separation is a MUST, not
 a convenience). If genuinely both apply (a system risk with a schedule
-consequence), file both, cross-referencing by id once ids exist to
-cross-reference.
+consequence), file both, cross-referencing by id.
 
 ## Interaction with other skills
 

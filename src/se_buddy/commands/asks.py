@@ -6,17 +6,20 @@ the live conversation (Sec.2.1/Sec.3 D1), not persisted state, so nothing
 here reports them; that reporting job belongs to the reasoning layer
 (Claude Code), not this CLI verb.
 
-In Phase 1, before any record can be written (`write memory`/`write
-register`/`write answer` are Phase 2/3), the only asks that can exist are
-profile-completeness gaps - so a fresh, unconfigured project correctly
-reports "no open asks" beyond those. That is the expected shape of the
-answer here, not a stub standing in for missing functionality.
+Every run reconciles `se-buddy/asks.yaml` against the current profile
+gaps first (`ask_store.sync_profile_gaps`) - a gap gets a stable
+`ASK-nnnn` the first time it's seen, and auto-resolves once its underlying
+condition clears. That reconciliation is what makes "an ask raised in one
+session is closed in another" (spec Sec.11's Phase 2 gate) true: the id
+this command prints today is the same id `se-buddy write answer` (or a
+later `asks` run noticing the gap cleared) will act on tomorrow.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from se_buddy.ask_store import open_asks, sync_profile_gaps
 from se_buddy.profile import check_completeness
 
 
@@ -26,19 +29,26 @@ def add_parser(subparsers) -> None:
 
 
 def run(args) -> int:
-    gaps = check_completeness(Path.cwd())
+    root = Path.cwd()
+    gaps = check_completeness(root)
+    sync_profile_gaps(root, gaps)
+    open_ = open_asks(root)
 
-    if not gaps:
+    if not open_:
         print("no open asks")
         return 0
 
-    print(f"{len(gaps)} open ask(s)")
-    for gap in gaps:
-        print(f"  act        {gap.act}")
-        print(f"  object     {gap.object}")
-        print(f"  done when  {gap.done_when}")
-        print(f"  blocks     {gap.blocks}")
-        print(f"  default    {gap.default}")
+    ordered = sorted(open_.items(), key=lambda kv: (kv[1].get("sequence") is None, kv[1].get("sequence", 0), kv[0]))
+    print(f"{len(ordered)} open ask(s)")
+    for ask_id, ask in ordered:
+        print(f"  id         {ask_id}")
+        print(f"  act        {ask['act']}")
+        print(f"  object     {ask['object']}")
+        print(f"  done when  {ask['done_when']}")
+        print(f"  blocks     {ask['blocks']}")
+        print(f"  default    {ask['default']}")
+        if ask.get("sequence") is not None:
+            print(f"  sequence   {ask['sequence']}")
         print()
 
     return 0

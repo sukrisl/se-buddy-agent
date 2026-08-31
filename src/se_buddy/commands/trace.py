@@ -1,6 +1,14 @@
-"""`se-buddy trace <id>` - what it traces to, what traces to it, what breaks (spec Sec.6.3, C07)."""
+"""`se-buddy trace <id>` - what it traces to, what traces to it, what breaks (spec Sec.6.3, C07, Sec.11).
+
+Phase 2 extends this across model *and* registers (spec Sec.11's Phase 2
+scope: "trace across model and registers"): `<id>` may be a model uuid or
+a register row id, and a model uuid's trace also reports every register
+row that cites it via `links`.
+"""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from se_buddy.commands._common import (
     add_depth_argument,
@@ -11,11 +19,13 @@ from se_buddy.commands._common import (
     truncate,
 )
 from se_buddy.commands.show import relationship_attrs
+from se_buddy.memory import render_citation
+from se_buddy.registers import find_row, find_rows_linking
 
 
 def add_parser(subparsers) -> None:
     parser = subparsers.add_parser("trace", help="what it traces to, what traces to it, what breaks")
-    parser.add_argument("id", help="a model element UUID")
+    parser.add_argument("id", help="a model element UUID or a register row id")
     add_model_argument(parser)
     add_limit_argument(parser)
     add_depth_argument(parser)
@@ -23,6 +33,13 @@ def add_parser(subparsers) -> None:
 
 
 def run(args) -> int:
+    root = Path.cwd()
+
+    register_hit = find_row(root, args.id)
+    if register_hit is not None:
+        _trace_register_row(args, register_hit)
+        return 0
+
     model = load_model_or_die(args)
     if model is None:
         return 1
@@ -30,7 +47,7 @@ def run(args) -> int:
     try:
         target = model.by_uuid(args.id)
     except KeyError:
-        print(f"se-buddy: {args.id!r} is not a model element in this model.")
+        print(f"se-buddy: {args.id!r} is not a model element or a register row id in this project.")
         return 1
 
     print(f"{type(target).__name__} {args.id}")
@@ -47,6 +64,12 @@ def run(args) -> int:
     if truncated:
         print(f"    ... truncated from {len(incoming)} (--limit {args.limit})")
 
+    citing_rows = find_rows_linking(root, args.id)
+    if citing_rows:
+        print(f"  cited by {len(citing_rows)} register row(s):")
+        for register, row in citing_rows:
+            print(f"    {register}: {render_citation(row['id'], row.get('claim', ''))}")
+
     diagrams = list(getattr(target, "diagrams", []) or [])
     if diagrams:
         print(
@@ -58,8 +81,27 @@ def run(args) -> int:
             f"  what breaks: {len(incoming)} reference(s) above would dangle "
             "if this element were removed"
         )
+    if citing_rows:
+        print(
+            f"  what breaks: {len(citing_rows)} register row(s) above cite this element - "
+            "removing it invalidates their `links`"
+        )
 
     return 0
+
+
+def _trace_register_row(args, hit: tuple[str, dict]) -> None:
+    register, row = hit
+    print(f"register row {row['id']} ({register})")
+    print(f"  {render_citation(row['id'], row.get('claim', ''))}")
+    print(f"  status: {row.get('status', '?')}")
+    links = row.get("links") or []
+    shown, truncated = truncate(links, args.limit)
+    print(f"  links to {len(links)} id(s):")
+    for linked_id in shown:
+        print(f"    {linked_id}")
+    if truncated:
+        print(f"    ... truncated from {len(links)} (--limit {args.limit})")
 
 
 def _reverse_closure(model, target, depth: int) -> list[tuple[object, str]]:

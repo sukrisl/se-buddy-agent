@@ -1,10 +1,9 @@
 """Record and ask schemas (spec Sec.9).
 
-Pure validation logic, no I/O. Nothing in Phase 1 writes a record or an ask
-yet - `se-buddy write memory`/`write register`/`write answer` are Phase 2/3 -
-but the shapes are needed now by `se-buddy asks` (which reads whatever
-ask-shaped entries exist) and by later phases, so they are built once here
-rather than re-derived per writer.
+Pure validation logic, no I/O. `se-buddy write register`/`write answer`
+(Phase 2) and `write memory` (not yet scoped to any phase - see
+SPEC-COVERAGE.md) all validate against the shapes defined here rather than
+each writer inventing its own.
 """
 
 from __future__ import annotations
@@ -28,6 +27,38 @@ ACTS = frozenset(
 
 # Record kinds that get sequential ids (spec Sec.9, Sec.3 D8).
 RECORD_KINDS = frozenset({"ADR", "CP", "CHANGE", "ASK"})
+
+# Registers (spec Sec.6.2) and the id prefix each one's rows allocate
+# under. Kept separate from RECORD_KINDS because a register row and a
+# narrative record are different data shapes (Sec.6.1 vs Sec.6.2) even
+# though both go through the same id allocator (se_buddy.memory).
+REGISTER_PREFIXES = {
+    "requirements": "REQ",
+    "stakeholder-expectations": "STK",
+    "risks-system": "RISKSYS",
+    "risks-project": "RISKPRJ",
+    "verification": "VER",
+    "not-carried": "NC",
+}
+
+# Every register row carries these regardless of which register it's in
+# (spec Sec.9's "Register row" line: "id, claim, status, owner,
+# provenance, links to model elements and records").
+REGISTER_BASE_FIELDS = ("id", "claim", "status", "owner", "provenance", "links")
+
+# Fields beyond the base that make each register meaningful. Sec.9 spells
+# out not-carried.yaml's fields exactly ("source element id, the
+# perspective pair, reason, who decided, or the ADR that decides a
+# batch"); the rest aren't enumerated in the spec text, so these are a
+# documented completion, not literal spec text (see SPEC-COVERAGE.md).
+REGISTER_EXTRA_FIELDS = {
+    "requirements": ("statement",),
+    "stakeholder-expectations": ("stakeholder",),
+    "risks-system": ("likelihood", "impact", "treatment"),
+    "risks-project": ("likelihood", "impact", "treatment"),
+    "verification": ("method", "requirement_id"),
+    "not-carried": ("source_element_id", "from_perspective", "to_perspective", "reason", "decided_by"),
+}
 
 
 class SchemaError(ValueError):
@@ -75,6 +106,43 @@ def validate_ask(data: dict) -> ValidationResult:
     for field in ("object", "blocks", "default"):
         if not data.get(field):
             warnings.append(f"{field} is required but not enforced (spec Sec.9)")
+
+    return ValidationResult(tuple(errors), tuple(warnings))
+
+
+def validate_register_row(register: str, data: dict) -> ValidationResult:
+    """Validates one row against `register`'s schema.
+
+    `id`, `claim` and `status` are enforced on every register - a row
+    lacking any of them can't be tracked at all. `owner`, `provenance` and
+    `links`, and each register's extra fields, are required but not
+    enforced by default, matching Sec.9's ask-field treatment - except
+    `not-carried.yaml`'s `reason`/`decided_by`, which Sec.9 states as
+    enforced explicitly: "reason and decider required - a row without them
+    re-states the unknown it exists to close."
+    """
+    if register not in REGISTER_PREFIXES:
+        raise ValueError(f"unknown register {register!r}; expected one of {sorted(REGISTER_PREFIXES)}")
+
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    for field in ("id", "claim", "status"):
+        if not data.get(field):
+            errors.append(f"{field} is required on every register row (spec Sec.9)")
+
+    for field in ("owner", "provenance", "links"):
+        if not data.get(field):
+            warnings.append(f"{field} is required but not enforced (spec Sec.9)")
+
+    hard_enforced = {"not-carried": ("reason", "decided_by")}.get(register, ())
+    for field in REGISTER_EXTRA_FIELDS.get(register, ()):
+        if data.get(field):
+            continue
+        if field in hard_enforced:
+            errors.append(f"{field} is required on {register} rows (spec Sec.9: enforced)")
+        else:
+            warnings.append(f"{field} is required but not enforced for {register} rows")
 
     return ValidationResult(tuple(errors), tuple(warnings))
 

@@ -1,9 +1,14 @@
 """Command dispatch for `se-buddy` (spec Sec.7.3).
 
-Phase 1 wires up every automatic-authority read verb except `memory`,
-`register`, `perspective`, `validate`, `followup`, `plan`, `baseline` and
-`export` - those need registers, records or the write path that arrive in
-later phases. Every `write` verb is Phase 2/3.
+Phase 2 adds `register`/`write-register`, `write-answer`,
+`baseline`/`write-baseline`. Still missing: `memory`, `perspective`,
+`validate`, `followup`, `plan`, `export`, and every modelling-track write
+verb (`write-propose`/`write-apply`/`write-record`/`write-revert`) - see
+SPEC-COVERAGE.md for which of those are genuinely unassigned to any phase
+in the spec's own phasing table, versus scoped to Phase 3.
+
+Every `write-*` verb is TTY-gated (spec Sec.2.3, `se_buddy.gate`) - it
+will refuse when run from here, or from any other non-interactive shell.
 """
 
 from __future__ import annotations
@@ -12,7 +17,18 @@ import argparse
 import warnings
 
 from se_buddy import doctor
-from se_buddy.commands import asks, inspect, search, show, trace
+from se_buddy.commands import (
+    asks,
+    baseline,
+    inspect,
+    register,
+    search,
+    show,
+    trace,
+    write_answer,
+    write_baseline,
+    write_register,
+)
 
 # capellambse warns (FutureWarning) on every access to a deprecated alias or
 # an absent-but-not-erroring field (e.g. `.name` on a class that has none -
@@ -31,7 +47,19 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="se-buddy")
     sub = parser.add_subparsers(dest="command", required=True)
-    for module in (doctor, inspect, search, show, trace, asks):
+    for module in (
+        doctor,
+        inspect,
+        search,
+        show,
+        trace,
+        asks,
+        register,
+        baseline,
+        write_register,
+        write_answer,
+        write_baseline,
+    ):
         module.add_parser(sub)
     return parser
 

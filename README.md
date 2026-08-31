@@ -11,7 +11,7 @@ Three parties do the work. Claude Code is the reasoning layer. The `se-buddy` co
 
 ## Status
 
-Phases 0–1 — see [log/log-0001-se_buddy_agent_spec.md](log/log-0001-se_buddy_agent_spec.md) Sec.11 for the phasing, and [SPEC-COVERAGE.md](SPEC-COVERAGE.md) for what is enforced so far. `se-buddy` can bootstrap itself, load a real Capella model, and answer `inspect`/`search`/`show`/`trace`/`asks` against it; `project-init` scaffolds a new project's profile. There is no write path yet, gated or otherwise — that starts in Phase 2.
+Phases 0–2 — see [log/log-0001-se_buddy_agent_spec.md](log/log-0001-se_buddy_agent_spec.md) Sec.11 for the phasing, and [SPEC-COVERAGE.md](SPEC-COVERAGE.md) for what is enforced so far. `se-buddy` can bootstrap itself, load a real Capella model, answer `inspect`/`search`/`show`/`trace`/`asks` against it (`trace` now also reaches into registers), and read/write the six registers and baselines — every write gated behind a real TTY confirmation, not a flag. The model itself still can't be modified — that starts in Phase 3.
 
 ## Prerequisites
 

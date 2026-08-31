@@ -1,11 +1,11 @@
 """Id allocation and citation rendering (spec Sec.3 D3, D8; Sec.7.2 `memory`).
 
-Pure logic, no write path. `allocate_id` is what a future `se-buddy write
-propose`/`write memory`/`write answer` will call to name a new record or
-ask; nothing calls it yet in Phase 1 since none of those verbs exist. It is
-built now, and unit-tested directly, because every later phase needs it and
-the id format (spec Sec.9's `ADR-nnnn` / `CP-nnnn` / `CHANGE-nnnn` /
-`ASK-nnnn`) is fixed by the spec, not something to redesign per-writer.
+Pure logic, no write path of its own. `se-buddy write register` and
+`write answer` (Phase 2) call `next_id`/`allocate_id` to name a new
+register row or `ASK-nnnn`; `write propose`/`write memory` (not yet
+scoped to a phase) will do the same for `CP`/`ADR`/`CHANGE`. One allocator
+for every id kind, so the sequencing rule (spec Sec.9: stable, never
+renumbered, never hand-authored) lives in exactly one place.
 """
 
 from __future__ import annotations
@@ -14,9 +14,15 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 
-from se_buddy.schemas import RECORD_KINDS
+from se_buddy.schemas import RECORD_KINDS, REGISTER_PREFIXES
 
 _ID_RE_TEMPLATE = r"({kind}-\d+)"
+
+# Every prefix next_id/allocate_id will accept: narrative-record kinds
+# (spec Sec.9) plus each register's row prefix (spec Sec.6.2). Kept as one
+# set here since the allocator itself doesn't care which of the two a
+# prefix belongs to - only that it's a real, known one.
+_KNOWN_KINDS = RECORD_KINDS | set(REGISTER_PREFIXES.values())
 
 
 def next_id(kind: str, existing_ids: Iterable[str]) -> str:
@@ -26,8 +32,8 @@ def next_id(kind: str, existing_ids: Iterable[str]) -> str:
     Sec.9) - this is the one place that allocation happens, so a record or
     ask always gets its id from here rather than a writer inventing one.
     """
-    if kind not in RECORD_KINDS:
-        raise ValueError(f"unknown record kind {kind!r}; expected one of {sorted(RECORD_KINDS)}")
+    if kind not in _KNOWN_KINDS:
+        raise ValueError(f"unknown id kind {kind!r}; expected one of {sorted(_KNOWN_KINDS)}")
 
     prefix = f"{kind}-"
     highest = 0

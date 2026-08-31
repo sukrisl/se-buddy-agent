@@ -4,6 +4,53 @@ Format and purpose: spec Sec.5.5. Newest first, append-only, never rewritten.
 
 ---
 
+## AC-0003 — 2026-08-31 — Phase 2: registers, write register/answer/baseline, the TTY gate
+
+```
+surface   cli, schema
+breaking  no
+action    none
+why       registers give the agent somewhere to put facts the model can't
+          hold (risks, verification, what wasn't carried across a
+          perspective transition), and the TTY gate is the precondition
+          for any of that - or anything else - to be written safely
+          (spec Sec.11's Phase 2 gate, spec Sec.2.3)
+```
+
+Adds `src/se_buddy/gate.py` (the TTY confirmation gate, spec Sec.2.3 - no
+bypass parameter, by design); `src/se_buddy/registers.py`/`schemas.py`
+(register schemas and load/save for the six registers under `se-buddy/
+registers/`); `se-buddy register`/`write-register` (spec Sec.6.2's "the
+only route" into a register); `se-buddy/knowledge.py` and `write-answer`
+(dispatches `CONFIRM`/`REVIEW`/`PRIORITISE`/`DRAW`/`DECIDE`/`SUPPLY`/
+`AUTHORISE` per spec Sec.7.3's table); `se-buddy/baseline.py` and
+`write-baseline` (manifest + local git tag, spec Sec.6.4); `trace`
+extended across model and registers; and `se_buddy/ask_store.py`, which
+gives a detected gap a stable `ASK-nnnn` id across sessions so `write
+answer`/auto-resolution have something real to close (see
+`SPEC-COVERAGE.md`'s design note - this fills a gap the spec's own CLI
+surface doesn't explicitly name a mechanism for).
+
+**Verified live, not just unit-tested:** every write verb, invoked
+directly from this session's own shell, refused with the TTY gate's clear
+message - the actual attack spec Sec.13 Question 8 names. `trace` across
+model and registers was run against a real risk row linking a real
+model uuid from the `test7_0` fixture, in both directions. `asks` was run
+twice against a fresh project to confirm id stability, then a gap was
+fixed and confirmed to auto-resolve on the next run. The baseline git-tag
+step was run once, for real, in a throwaway repository (never this one,
+never pushed).
+
+**Two gaps found in the spec's own phasing table, not resolved
+unilaterally:** `write memory` and `se-buddy perspective` are absent from
+every phase's content list in Sec.11. Consequence: `arch-decide`'s
+ADR-filing (flagged pending since Phase 1) is still pending;
+`risk-manage`'s track/close is not (this phase gave it `write register`
+for real, and its `SKILL.md` was updated to say so). See
+`SPEC-COVERAGE.md` for the reasoning.
+
+---
+
 ## AC-0002 — 2026-08-31 — Phase 1: model reading, inspect/search/show/trace/asks, project-init scaffolding, shared + architecture skills
 
 ```
