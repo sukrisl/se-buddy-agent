@@ -7,6 +7,7 @@ from se_buddy.changes import file_change
 from se_buddy.commands.show import _show_record
 from se_buddy.decisions import file_adr
 from se_buddy.profile import ProfileGap
+from se_buddy.memory_domains import upsert_row as upsert_memory_row
 from se_buddy.proposals import file_cp
 from se_buddy.registers import upsert_row
 from tests.test_decisions import VALID_ADR
@@ -77,6 +78,29 @@ class TestShowRecord(unittest.TestCase):
     def test_unknown_record_id_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(_show_record(Path(tmp), "ADR-9999", "ADR"))
+
+    def test_shows_a_principle(self):
+        """A code review found `_show_record` had no dispatch branch at
+        all for PRIN/ASSUME ids - `se-buddy show PRIN-0001` fell straight
+        through to the "not found" message for a principle that plainly
+        existed.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row = upsert_memory_row(
+                root, "principles", {"statement": "prefer composition", "provenance": "team", "status": "active"}
+            )
+            self.assertEqual(_show_record(root, row["id"], "PRIN"), 0)
+
+    def test_shows_an_assumption(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row = upsert_memory_row(root, "assumptions", {"statement": "x", "provenance": "p", "status": "unverified"})
+            self.assertEqual(_show_record(root, row["id"], "ASSUME"), 0)
+
+    def test_unknown_principle_id_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(_show_record(Path(tmp), "PRIN-9999", "PRIN"))
 
 
 if __name__ == "__main__":

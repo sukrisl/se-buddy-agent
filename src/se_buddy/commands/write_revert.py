@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from se_buddy.apply_lifecycle import check_tree_clean, restore_snapshot, snapshot_dir
+from se_buddy.apply_lifecycle import ApplyError, check_tree_clean, restore_snapshot, snapshot_dir
 from se_buddy.changes import load_change
 from se_buddy.commands._common import add_model_argument
 from se_buddy.gate import GateRefused, confirm
@@ -40,7 +40,10 @@ def revert_change(root: Path, change_id: str, model_arg: str | None = None) -> N
     except ModelResolutionError as exc:
         raise RevertError(str(exc)) from exc
 
-    check_tree_clean(root, aird_path)
+    try:
+        check_tree_clean(root, aird_path)
+    except ApplyError as exc:
+        raise RevertError(str(exc)) from exc
 
     directory = snapshot_dir(root, change_id)
     if not directory.exists():

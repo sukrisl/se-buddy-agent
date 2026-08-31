@@ -261,7 +261,7 @@ def validate_memory_row(domain: str, data: dict) -> ValidationResult:
     return ValidationResult(tuple(errors), tuple(warnings))
 
 
-_CP_PRESENCE_ONLY_FIELDS = frozenset({"unknowns", "open_questions"})
+_CP_PRESENCE_ONLY_FIELDS = frozenset({"unknowns", "open_questions", "diagram_cost"})
 
 
 def validate_cp(data: dict) -> ValidationResult:
@@ -269,10 +269,14 @@ def validate_cp(data: dict) -> ValidationResult:
 
     `facts`, `alternatives`, `unknowns`, `open_questions`,
     `verification_implications` and `provenance` are enforced - Sec.9,
-    verbatim: "rejected if [these] are missing." `unknowns` and
-    `open_questions` are checked for *presence*, not truthiness - an
-    empty list is a real, good answer ("nothing outstanding"), the same
-    treatment `validate_change` gives `manual_followup`.
+    verbatim: "rejected if [these] are missing." `unknowns`,
+    `open_questions` and `diagram_cost` are checked for *presence*, not
+    truthiness - an empty list is a real, good answer ("nothing
+    outstanding"), and `diagram_cost: 0` is a real, good answer ("nothing
+    to draw") that `bool(0)` would otherwise treat as absent - a code
+    review found exactly that: `diagram_cost` was warned-about-as-missing
+    on every CP that legitimately had none. Same treatment `validate_change`
+    gives `manual_followup`.
     """
     base = validate_record_base(data)
     errors = list(base.errors)
@@ -293,6 +297,9 @@ def validate_cp(data: dict) -> ValidationResult:
     return ValidationResult(tuple(errors), tuple(warnings))
 
 
+_CHANGE_PRESENCE_ONLY_FIELDS = frozenset({"manual_followup"})
+
+
 def validate_change(data: dict) -> ValidationResult:
     """Validates a CHANGE: the base record fields, plus Sec.9's CHANGE row.
 
@@ -300,16 +307,27 @@ def validate_change(data: dict) -> ValidationResult:
     required," and an unauthorised CHANGE is exactly what spec Sec.2.3
     exists to prevent. `manual_followup` is checked for *presence*, not
     truthiness - an empty list is a valid, meaningful answer ("nothing left
-    to draw by hand"), same treatment as the base record's `supersedes`.
+    to draw by hand"), same treatment `validate_cp` gives `unknowns`/
+    `open_questions`/`diagram_cost`.
+
+    A code review found this used to compute `present` for every field
+    with `not in (None, "")`, then unconditionally overwrite it with an
+    `is not None` check specifically for `manual_followup` - a dead
+    no-op, since `[] not in (None, "")` and `[] is not None` already agree
+    for every real value this field takes. Rewritten to share
+    `validate_cp`'s actual pattern: a presence-only field set, checked
+    directly, instead of a same-field special case with no behavioural
+    effect.
     """
     base = validate_record_base(data)
     errors = list(base.errors)
     warnings = list(base.warnings)
 
     for field in CHANGE_EXTRA_FIELDS:
-        present = field in data and data[field] not in (None, "")
-        if field == "manual_followup":
+        if field in _CHANGE_PRESENCE_ONLY_FIELDS:
             present = field in data and data[field] is not None
+        else:
+            present = bool(data.get(field))
         if present:
             continue
         if field in CHANGE_ENFORCED_FIELDS:

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from se_buddy.atomic_write import atomic_write_text
 from se_buddy.memory import next_id
 from se_buddy.schemas import (
     MEMORY_DOMAIN_PREFIXES,
@@ -43,10 +44,7 @@ def _load_list(path: Path, key: str) -> list[dict]:
 
 def _save_list(path: Path, key: str, items: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump({key: items}, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    atomic_write_text(path, yaml.safe_dump({key: items}, sort_keys=False, allow_unicode=True))
 
 
 # --- principles / assumptions: stable-id rows ---
@@ -61,6 +59,12 @@ def upsert_row(root: Path, domain: str, row: dict) -> dict:
     same shape as `se_buddy.registers.upsert_row`, for the same reason: an
     assumption's `status` moves from unverified to confirmed without
     becoming a different assumption.
+
+    Rows with no `id` are preserved across the save - a code review found
+    the original version built `by_id` from only the id-bearing rows and
+    then saved `by_id.values()` alone, so any row that had somehow lost or
+    never had an id (e.g. hand-edited YAML) was silently dropped the next
+    time anyone wrote to this domain.
     """
     if domain not in MEMORY_DOMAIN_PREFIXES:
         raise MemoryDomainError(
@@ -68,6 +72,7 @@ def upsert_row(root: Path, domain: str, row: dict) -> dict:
         )
 
     rows = load_rows(root, domain)
+    unidentified = [r for r in rows if not r.get("id")]
     by_id = {r["id"]: r for r in rows if r.get("id")}
 
     row_id = row.get("id")
@@ -85,8 +90,15 @@ def upsert_row(root: Path, domain: str, row: dict) -> dict:
         )
 
     by_id[row_id] = row
-    _save_list(_domain_path(root, domain), domain, list(by_id.values()))
+    _save_list(_domain_path(root, domain), domain, unidentified + list(by_id.values()))
     return row
+
+
+def find_row(root: Path, domain: str, row_id: str) -> dict | None:
+    for row in load_rows(root, domain):
+        if row.get("id") == row_id:
+            return row
+    return None
 
 
 # --- viewpoints: keyed by name ---

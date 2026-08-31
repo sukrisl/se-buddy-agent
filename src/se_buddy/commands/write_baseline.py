@@ -13,7 +13,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from se_buddy.baseline import write_baseline
+from se_buddy.baseline import BaselineError, write_baseline
 from se_buddy.commands._common import add_model_argument
 from se_buddy.gate import GateRefused, confirm
 from se_buddy.model import ModelResolutionError, resolve_model_path
@@ -22,6 +22,7 @@ from se_buddy.model import ModelResolutionError, resolve_model_path
 def add_parser(subparsers) -> None:
     parser = subparsers.add_parser("write-baseline", help="a manifest and a git tag (spec Sec.6.4)")
     parser.add_argument("name", help="the baseline's name, also used as the git tag")
+    parser.add_argument("--force", action="store_true", help="overwrite an existing baseline of the same name")
     add_model_argument(parser)
     parser.set_defaults(func=run)
 
@@ -40,7 +41,11 @@ def run(args) -> int:
         print(f"se-buddy: {exc}")
         return 1
 
-    path = write_baseline(root, args.name, aird_path)
+    try:
+        path = write_baseline(root, args.name, aird_path, force=args.force)
+    except BaselineError as exc:
+        print(f"se-buddy: {exc}")
+        return 1
 
     tag = subprocess.run(
         ["git", "tag", args.name], cwd=root, capture_output=True, text=True

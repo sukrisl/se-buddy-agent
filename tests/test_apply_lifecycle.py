@@ -1,14 +1,17 @@
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import capellambse
 
 from se_buddy.apply_lifecycle import (
     ApplyError,
     _check_no_diagram_references,
+    _load_model_or_apply_error,
     apply_cp,
     check_drift,
     check_tree_clean,
@@ -16,7 +19,9 @@ from se_buddy.apply_lifecycle import (
     snapshot_dir,
     take_snapshot,
 )
-from se_buddy.changes import load_change, load_followup
+from se_buddy.changes import ChangeError, load_change, load_followup
+from se_buddy.decl_ops import DryRunResult
+from se_buddy.model import ModelResolutionError
 from se_buddy.proposals import file_cp
 
 FIXTURE_SOURCE = (
@@ -81,6 +86,41 @@ class TestCheckTreeClean(unittest.TestCase):
             capella.write_text(capella.read_text(encoding="utf-8") + "\n<!-- dirty -->", encoding="utf-8")
             with self.assertRaises(ApplyError):
                 check_tree_clean(aird.parent, aird)
+
+    def test_dirty_model_in_a_subdirectory_relative_path_is_detected(self):
+        """Regression test for the confirmed bug: passing the full
+        (already-parent-containing) path to `git status` while `cwd` was
+        already that same parent doubled the segment
+        (`model/model/Project.aird`), so git matched nothing and a
+        genuinely dirty subdirectory-relative model was reported clean.
+        Every other test in this class uses an absolute `aird` path built
+        straight from a tempdir, which never exhibited the doubling - this
+        one specifically uses a relative "model/<name>" path with the
+        process cwd set to the repo root, the exact layout that triggered
+        it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            dest = root / "model"
+            shutil.copytree(FIXTURE_SOURCE, dest)
+            _git(["init", "--quiet"], root)
+            _git(["config", "user.email", "test@example.com"], root)
+            _git(["config", "user.name", "Test"], root)
+            _git(["add", "."], root)
+            _git(["commit", "--quiet", "-m", "initial"], root)
+
+            aird_name = next(dest.glob("*.aird")).name
+            capella = dest / aird_name.replace(".aird", ".capella")
+            capella.write_text(capella.read_text(encoding="utf-8") + "\n<!-- dirty -->", encoding="utf-8")
+
+            original_cwd = Path.cwd()
+            os.chdir(root)
+            try:
+                relative_aird = Path("model") / aird_name
+                with self.assertRaises(ApplyError):
+                    check_tree_clean(root, relative_aird)
+            finally:
+                os.chdir(original_cwd)
 
 
 class TestCheckDrift(unittest.TestCase):
@@ -215,6 +255,82 @@ class TestApplyCp(unittest.TestCase):
             with self.assertRaises(ApplyError) as ctx:
                 apply_cp(root, cp2["id"], "engineer said go again", model_arg=str(aird))
             self.assertIn("followup", str(ctx.exception))
+
+
+class TestApplyCpDeleteEnforcement(unittest.TestCase):
+    """`dry_run` is mocked here rather than exercised for real: a real
+    delete of the fixture's elements was confirmed live to cascade into
+    unrelated capellambse crashes (a dangling `Part` reference breaking
+    `model.search()` afterwards), which is a capellambse-side fragility
+    unrelated to the enforcement bug under test. Mocking isolates the one
+    thing this module is actually responsible for: refusing (or not) based
+    on `DryRunResult.deleted` and the `delete` flag.
+    """
+
+    def test_deletion_without_delete_flag_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aird = _git_repo_with_fixture(root)
+            cp = file_cp(root, dict(VALID_CP_BASE), aird)
+            fake_result = DryRunResult(
+                created=frozenset(), deleted=frozenset({HOGWARTS_LC_UUID}), before_count=1, after_count=0
+            )
+            with patch("se_buddy.apply_lifecycle.dry_run", return_value=fake_result):
+                with self.assertRaises(ApplyError) as ctx:
+                    apply_cp(root, cp["id"], "engineer said go", model_arg=str(aird), delete=False)
+            self.assertIn("--delete", str(ctx.exception))
+            self.assertFalse(snapshot_dir(root, "CHANGE-0001").exists())
+
+    def test_deletion_with_delete_flag_and_no_diagram_references_proceeds_past_the_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aird = _git_repo_with_fixture(root)
+            cp = file_cp(root, dict(VALID_CP_BASE), aird)
+            # A fake uuid in `deleted` can never be found by `by_uuid`, so
+            # `_check_no_diagram_references` treats it as a no-op (already
+            # covered by `TestCheckNoDiagramReferences.
+            # test_nonexistent_uuid_is_a_noop`) - the apply then proceeds
+            # on the real (undeleted) model and succeeds normally, proving
+            # `--delete` plus a clean diagram check does not, itself, block
+            # anything.
+            fake_result = DryRunResult(
+                created=frozenset(), deleted=frozenset({"not-a-real-uuid"}), before_count=1, after_count=0
+            )
+            with patch("se_buddy.apply_lifecycle.dry_run", return_value=fake_result):
+                change = apply_cp(root, cp["id"], "engineer said go", model_arg=str(aird), delete=True, today="2026-08-31")
+            self.assertTrue(load_change(root, change["id"]))
+
+
+class TestApplyCpRecordFailureRestoresSnapshot(unittest.TestCase):
+    def test_file_change_failure_restores_the_snapshot_and_raises_apply_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aird = _git_repo_with_fixture(root)
+            cp = file_cp(root, dict(VALID_CP_BASE), aird)
+            before_capella = aird.with_suffix(".capella").read_text(encoding="utf-8")
+
+            with patch("se_buddy.apply_lifecycle.file_change", side_effect=RuntimeError("disk full")):
+                with self.assertRaises(ApplyError) as ctx:
+                    apply_cp(root, cp["id"], "engineer said go", model_arg=str(aird), today="2026-08-31")
+            self.assertIn("restored from snapshot", str(ctx.exception))
+
+            after_capella = aird.with_suffix(".capella").read_text(encoding="utf-8")
+            self.assertEqual(before_capella, after_capella)
+            self.assertFalse(load_change(root, "CHANGE-0001"))
+
+
+class TestLoadModelOrApplyError(unittest.TestCase):
+    def test_resolution_failure_is_wrapped_as_apply_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(ApplyError):
+                _load_model_or_apply_error(root, "does-not-exist.aird")
+
+    def test_diagram_reference_check_wraps_resolution_failure_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(ApplyError):
+                _check_no_diagram_references(root, "does-not-exist.aird", frozenset({HOGWARTS_LC_UUID}))
 
 
 if __name__ == "__main__":

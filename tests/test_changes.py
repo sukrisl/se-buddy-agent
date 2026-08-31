@@ -1,14 +1,18 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import se_buddy.changes as changes_module
 from se_buddy.ask_store import sync_profile_gaps
 from se_buddy.changes import (
     ChangeError,
     any_followup_open,
+    change_path,
     file_change,
     find_followup_item,
     followup_all_ticked,
+    followup_path,
     load_change,
     load_followup,
     mark_followup_item_done,
@@ -73,6 +77,36 @@ class TestFileChange(unittest.TestCase):
             file_change(root, "CHANGE-0001", dict(VALID_CHANGE), [])
             with self.assertRaises(ChangeError):
                 file_change(root, "CHANGE-0001", dict(VALID_CHANGE), [])
+
+    def test_crash_between_writes_leaves_the_followup_file_orphaned_and_blocking(self):
+        """A code review found the two files written in the opposite
+        order: change record first, then followup. A crash between them
+        left a CHANGE on disk with no followup file at all, so
+        `any_followup_open` (which only scans `*.followup.yaml`) saw
+        nothing owed and would have let a later apply through with a real
+        DRAW item silently lost. Followup is now written first, so the
+        same crash instead leaves an orphaned followup file with no
+        matching CHANGE yet - still detected and still blocking, the
+        fail-safe direction.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            followup = [{"object": "o", "done_when": "d", "blocks": "b", "default": "n"}]
+            target = change_path(root, "CHANGE-0001")
+            original_atomic_write_text = changes_module.atomic_write_text
+
+            def flaky_atomic_write_text(path, *args, **kwargs):
+                if path == target:
+                    raise RuntimeError("simulated crash")
+                return original_atomic_write_text(path, *args, **kwargs)
+
+            with patch.object(changes_module, "atomic_write_text", flaky_atomic_write_text):
+                with self.assertRaises(RuntimeError):
+                    file_change(root, "CHANGE-0001", dict(VALID_CHANGE), followup)
+
+            self.assertTrue(followup_path(root, "CHANGE-0001").exists())
+            self.assertIsNone(load_change(root, "CHANGE-0001"))
+            self.assertTrue(any_followup_open(root))
 
 
 class TestFollowupTracking(unittest.TestCase):

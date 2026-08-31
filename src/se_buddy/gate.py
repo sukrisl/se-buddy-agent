@@ -53,6 +53,14 @@ def confirm(action: str, expected: str = "yes") -> None:
 
     print(action)
     print(f"Type {expected!r} to confirm, anything else to cancel:")
-    response = input("> ")
+    try:
+        response = input("> ")
+    except EOFError as exc:
+        # `isatty()` can pass and stdin still hit EOF before a line
+        # arrives (e.g. piped/closed after the isatty check) - a code
+        # review found this raised a raw `EOFError` past every caller's
+        # `except GateRefused`, an uncaught crash instead of a clean
+        # refusal for what is still just "no confirmation was given."
+        raise GateRefused(f"{action} - cancelled, stdin closed before a confirmation was given") from exc
     if response != expected:
         raise GateRefused(f"{action} - cancelled, confirmation text did not match")

@@ -22,6 +22,7 @@ from pathlib import Path
 import yaml
 
 from se_buddy.ask_store import all_asks
+from se_buddy.atomic_write import atomic_write_text
 from se_buddy.memory import next_id
 from se_buddy.schemas import validate_ask, validate_change
 
@@ -95,13 +96,21 @@ def file_change(root: Path, change_id: str, change: dict, followup: list[dict]) 
 
     directory = changes_dir(root)
     directory.mkdir(parents=True, exist_ok=True)
-    change_path(root, change_id).write_text(
-        yaml.safe_dump(change, sort_keys=False, allow_unicode=True), encoding="utf-8"
-    )
-    followup_path(root, change_id).write_text(
+    # Followup is written *before* the change record, not after - a code
+    # review noted that if the process died between the two writes, the
+    # original order left a CHANGE on disk with no followup file at all,
+    # so `any_followup_open` (which only scans `*.followup.yaml`) would
+    # see nothing owed and let a later apply through with a real DRAW item
+    # silently lost. Writing followup first means a crash between the two
+    # writes instead leaves an orphaned followup file with no matching
+    # CHANGE yet - `any_followup_open` still sees it and blocks, which is
+    # the fail-safe direction: block and let the engineer investigate,
+    # never silently drop owed diagram work.
+    atomic_write_text(
+        followup_path(root, change_id),
         yaml.safe_dump({"followup": followup_with_ids}, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
     )
+    atomic_write_text(change_path(root, change_id), yaml.safe_dump(change, sort_keys=False, allow_unicode=True))
     return change
 
 
@@ -158,9 +167,9 @@ def mark_followup_item_done(root: Path, change_id: str, ask_id: str, today: str 
     for item in items:
         if item["id"] == ask_id:
             item["answered"] = {"date": today, "act": "DRAW", "where": f"{change_id}.followup.yaml"}
-            followup_path(root, change_id).write_text(
+            atomic_write_text(
+                followup_path(root, change_id),
                 yaml.safe_dump({"followup": items}, sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
             )
             return item
     raise ChangeError(f"{ask_id} is not in {change_id}'s followup checklist")

@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from se_buddy.ask_store import sync_profile_gaps
-from se_buddy.baseline import build_manifest, load_baseline, write_baseline
+from se_buddy.baseline import BaselineError, build_manifest, load_baseline, write_baseline
 from se_buddy.profile import ProfileGap
 from se_buddy.registers import upsert_row
 
@@ -68,6 +68,42 @@ class TestWriteAndLoadBaseline(unittest.TestCase):
     def test_missing_baseline_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(load_baseline(Path(tmp), "does-not-exist"))
+
+    def test_path_traversal_name_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aird = root / "model.aird"
+            aird.write_text("x", encoding="utf-8")
+            with self.assertRaises(BaselineError):
+                write_baseline(root, "../escaped", aird, today="2026-08-31")
+            self.assertFalse((root.parent / "escaped.yaml").exists())
+
+    def test_dotdot_name_refuses_even_without_a_separator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aird = root / "model.aird"
+            aird.write_text("x", encoding="utf-8")
+            with self.assertRaises(BaselineError):
+                write_baseline(root, "..", aird, today="2026-08-31")
+
+    def test_existing_baseline_refuses_without_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aird = root / "model.aird"
+            aird.write_text("x", encoding="utf-8")
+            write_baseline(root, "pdr", aird, today="2026-08-31")
+            with self.assertRaises(BaselineError):
+                write_baseline(root, "pdr", aird, today="2026-09-01")
+            self.assertEqual(load_baseline(root, "pdr")["date"], "2026-08-31")
+
+    def test_existing_baseline_overwritten_with_force(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            aird = root / "model.aird"
+            aird.write_text("x", encoding="utf-8")
+            write_baseline(root, "pdr", aird, today="2026-08-31")
+            write_baseline(root, "pdr", aird, today="2026-09-01", force=True)
+            self.assertEqual(load_baseline(root, "pdr")["date"], "2026-09-01")
 
 
 if __name__ == "__main__":

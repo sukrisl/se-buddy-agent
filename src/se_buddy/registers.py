@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from se_buddy.atomic_write import atomic_write_text
 from se_buddy.memory import next_id
 from se_buddy.schemas import REGISTER_PREFIXES, validate_register_row
 
@@ -53,10 +54,7 @@ def save_register(root: Path, register: str, rows: dict[str, dict]) -> Path:
     # sort_keys=False preserves insertion order (row id ascending, since
     # callers only ever add/update - a diff-friendly register is worth
     # more than an alphabetised one to an engineer reviewing `git diff`.
-    path.write_text(
-        yaml.safe_dump({"rows": rows}, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    atomic_write_text(path, yaml.safe_dump({"rows": rows}, sort_keys=False, allow_unicode=True))
     return path
 
 

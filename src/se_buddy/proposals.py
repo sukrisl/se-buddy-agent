@@ -21,6 +21,7 @@ from pathlib import Path
 
 import yaml
 
+from se_buddy.atomic_write import atomic_write_text
 from se_buddy.memory import allocate_id
 from se_buddy.model import hash_model_files
 from se_buddy.schemas import validate_cp
@@ -58,10 +59,7 @@ def file_cp(root: Path, cp: dict, aird_path: str | Path) -> dict:
         )
 
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{cp_id}.yaml").write_text(
-        yaml.safe_dump(cp, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    atomic_write_text(directory / f"{cp_id}.yaml", yaml.safe_dump(cp, sort_keys=False, allow_unicode=True))
     return cp
 
 

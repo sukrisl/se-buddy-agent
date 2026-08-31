@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from se_buddy.atomic_write import atomic_write_text
 from se_buddy.memory import allocate_id
 from se_buddy.schemas import validate_adr
 
@@ -49,10 +50,7 @@ def file_adr(root: Path, adr: dict) -> dict:
         )
 
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{adr_id}.yaml").write_text(
-        yaml.safe_dump(adr, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    atomic_write_text(directory / f"{adr_id}.yaml", yaml.safe_dump(adr, sort_keys=False, allow_unicode=True))
     return adr
 
 

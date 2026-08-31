@@ -9,7 +9,8 @@ philosophy: "Tests exercise the layer beneath the gate directly").
 "MUST leave the model exactly as it was on any failure" (spec Sec.10.2):
 before the write, by refusing before anything is snapshotted; after the
 write, by restoring the snapshot. Every exception path below does one of
-the two.
+the two - including the final record-writing step, which a code review
+found was not originally covered (see `apply_cp`'s docstring).
 """
 
 from __future__ import annotations
@@ -49,9 +50,19 @@ def check_tree_clean(root: Path, aird_path: Path) -> None:
     larger repo), and git itself walks upward to find `.git` regardless of
     exactly which directory under it you start from, so anchoring on the
     model file's real location is the only assumption-free choice.
+
+    The path arguments given to `git status` are bare filenames
+    (`aird_path.name`, not `str(aird_path)`), never the full path - a code
+    review found that passing the full path here, on top of a `cwd` that's
+    already that path's own parent directory, doubled the parent segment
+    (`model/model/Project.aird`) whenever the model lived in a
+    subdirectory, so git silently matched nothing and this function
+    reported "clean" on a genuinely dirty tree. Confirmed live before the
+    fix, and covered by a regression test that specifically uses a
+    subdirectory layout (the case every prior test happened to avoid).
     """
     capella_path = aird_path.with_suffix(".capella")
-    proc = _git(["status", "--porcelain", "--", str(aird_path), str(capella_path)], aird_path.parent)
+    proc = _git(["status", "--porcelain", "--", aird_path.name, capella_path.name], aird_path.parent)
     if proc.returncode != 0:
         raise ApplyError(f"could not check git status: {proc.stderr.strip()}")
     if proc.stdout.strip():
@@ -98,6 +109,18 @@ def restore_snapshot(aird_path: Path, directory: Path) -> None:
             shutil.copy2(snapshot_file, sibling)
 
 
+def _load_model_or_apply_error(root: Path, model_arg: str | None):
+    """`load_model()` wrapped so `ModelResolutionError` becomes `ApplyError`
+    at every call site in this module - a code review found two call sites
+    that loaded the model without this wrapping, letting a resolution
+    failure escape uncaught past `write_apply.py`'s `except ApplyError`.
+    """
+    try:
+        return load_model(root, model_arg)
+    except ModelResolutionError as exc:
+        raise ApplyError(str(exc)) from exc
+
+
 def _check_no_diagram_references(root: Path, model_arg: str | None, deleted_uuids: frozenset) -> None:
     """spec Sec.10.2's `--delete` precondition: refuse outright if any
     diagram still references the target (decision 3 in the Phase 3 plan -
@@ -105,11 +128,11 @@ def _check_no_diagram_references(root: Path, model_arg: str | None, deleted_uuid
     model and `.aird` mutually inconsistent for however long the followup
     takes).
 
-    Uses a fresh, unmutated model load - the preflight model that produced
+    Uses a fresh, unmutated model load - the model that produced
     `deleted_uuids` has already had those elements removed from its own
     in-memory tree by the time `dry_run` returns.
     """
-    check_model = load_model(root, model_arg)
+    check_model = _load_model_or_apply_error(root, model_arg)
     for target_uuid in deleted_uuids:
         try:
             element = check_model.by_uuid(target_uuid)
@@ -158,7 +181,29 @@ def apply_cp(
 ) -> dict:
     """Runs the full spec Sec.10.2 sequence for `cp_id`. Returns the
     written `CHANGE` record. Raises `ApplyError` on any precondition or
-    mid-apply failure.
+    mid-apply failure, and restores the snapshot whenever the failure
+    happens after one was taken - including a failure while writing the
+    `CHANGE` record itself. A code review found that step originally sat
+    outside the restore-guarded block: a failure there (e.g. a malformed
+    pre-existing followup file elsewhere in the project) left the model
+    saved and modified with no record and no restore, and raised
+    `ChangeError`, a type this function's own caller never caught. Both are
+    fixed here: the record write is inside the same guard as the save, and
+    any exception during it - not only `ChangeError` - triggers a restore.
+
+    Also fixed here: `--delete` is now actually enforced. The diagram-
+    reference safety check previously only ran `if delete and
+    preflight_result.deleted`, with no refusal when a proposal deleted
+    elements and `--delete` simply wasn't passed - the deletion went
+    through unchecked. It now refuses first if deletions are attempted
+    without the flag, exactly as spec Sec.2.3 requires ("Deletion requires
+    a distinct flag").
+
+    Also simplified: earlier versions loaded and applied the model twice
+    (once to preflight, once for real), which always produced an identical
+    result once `check_tree_clean`/`check_drift` had already confirmed
+    nothing changed in between - removed as pure duplicated work, not a
+    behaviour change.
     """
     today = today or date.today().isoformat()
 
@@ -188,12 +233,17 @@ def apply_cp(
     check_tree_clean(root, aird_path)
     check_drift(cp, aird_path)
 
-    preflight_model = load_model(root, model_arg)
+    preflight_model = _load_model_or_apply_error(root, model_arg)
     try:
         preflight_result = dry_run(preflight_model, decl_text)
     except DeclError as exc:
         raise ApplyError(f"{cp_id}'s proposed_changes does not apply cleanly: {exc}") from exc
 
+    if preflight_result.deleted and not delete:
+        raise ApplyError(
+            f"{cp_id} deletes {len(preflight_result.deleted)} element(s) but --delete was not "
+            "passed (spec Sec.2.3: deletion requires a distinct flag)"
+        )
     if delete and preflight_result.deleted:
         _check_no_diagram_references(root, model_arg, preflight_result.deleted)
 
@@ -201,38 +251,50 @@ def apply_cp(
     snap_dir = take_snapshot(root, aird_path, change_id)
 
     try:
-        model = load_model(root, model_arg)
-        real_result = dry_run(model, decl_text)
-        model.save()
+        # `preflight_model` already has `decl_text` applied in memory (from
+        # the `dry_run` call above) - saving it directly, rather than
+        # loading and re-applying to a second model object, is what removes
+        # the duplicated work described in this function's docstring.
+        preflight_model.save()
     except Exception as exc:
         restore_snapshot(aird_path, snap_dir)
         raise ApplyError(f"apply failed - the model was restored from snapshot: {exc}") from exc
 
     try:
-        reparsed = load_model(root, model_arg)
+        reparsed = _load_model_or_apply_error(root, model_arg)
         findings = run_all_layers(root, reparsed)
+    except ApplyError:
+        restore_snapshot(aird_path, snap_dir)
+        raise
     except Exception as exc:
         restore_snapshot(aird_path, snap_dir)
         raise ApplyError(f"post-apply validation failed - the model was restored from snapshot: {exc}") from exc
 
-    diff_summary = f"{len(real_result.created)} element(s) created, {len(real_result.deleted)} deleted"
+    diff_summary = f"{len(preflight_result.created)} element(s) created, {len(preflight_result.deleted)} deleted"
     validation_summary = summarize(findings)
-    followup = _draw_followup_for_created(reparsed, real_result.created)
+    followup = _draw_followup_for_created(reparsed, preflight_result.created)
 
-    change = file_change(
-        root,
-        change_id,
-        {
-            "claim": cp["claim"],
-            "tier": cp.get("tier", "judgement"),
-            "date": today,
-            "supersedes": [],
-            "proposal": cp_id,
-            "authority": authorized_by,
-            "diff_summary": diff_summary,
-            "validation_summary": validation_summary,
-            "manual_followup": followup,
-        },
-        followup,
-    )
+    try:
+        change = file_change(
+            root,
+            change_id,
+            {
+                "claim": cp["claim"],
+                "tier": cp.get("tier", "judgement"),
+                "date": today,
+                "supersedes": [],
+                "proposal": cp_id,
+                "authority": authorized_by,
+                "diff_summary": diff_summary,
+                "validation_summary": validation_summary,
+                "manual_followup": followup,
+            },
+            followup,
+        )
+    except Exception as exc:
+        restore_snapshot(aird_path, snap_dir)
+        raise ApplyError(
+            f"recording the CHANGE failed - the model was restored from snapshot: {exc}"
+        ) from exc
+
     return change

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from se_buddy.memory_domains import (
     MemoryDomainError,
+    find_row,
     load_glossary,
     load_rows,
     load_viewpoints,
@@ -56,6 +57,40 @@ class TestUpsertRow(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(MemoryDomainError):
                 upsert_row(Path(tmp), "principles", {"id": "PRIN-9999", "statement": "x"})
+
+    def test_id_less_row_survives_a_later_upsert(self):
+        """A code review found `upsert_row` rebuilt its saved list from
+        only the id-bearing rows, silently dropping any row that had no
+        `id` (e.g. hand-edited YAML) the next time this domain was
+        written to at all.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from se_buddy.memory_domains import _domain_path, _save_list
+
+            _save_list(
+                _domain_path(root, "principles"),
+                "principles",
+                [{"statement": "hand-added, no id yet", "provenance": "p", "status": "active"}],
+            )
+            upsert_row(root, "principles", {"statement": "a real new row", "provenance": "p", "status": "active"})
+            rows = load_rows(root, "principles")
+            self.assertEqual(len(rows), 2)
+            statements = {r["statement"] for r in rows}
+            self.assertIn("hand-added, no id yet", statements)
+
+
+class TestFindRow(unittest.TestCase):
+    def test_finds_by_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            created = upsert_row(root, "assumptions", {"statement": "x", "provenance": "p", "status": "unverified"})
+            found = find_row(root, "assumptions", created["id"])
+            self.assertEqual(found["statement"], "x")
+
+    def test_unknown_id_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(find_row(Path(tmp), "assumptions", "ASSUME-9999"))
 
 
 class TestUpsertViewpoint(unittest.TestCase):

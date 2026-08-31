@@ -20,6 +20,7 @@ from pathlib import Path
 
 import yaml
 
+from se_buddy.atomic_write import atomic_write_text
 from se_buddy.memory import next_id
 from se_buddy.profile import ProfileGap
 
@@ -40,10 +41,7 @@ def _load(root: Path) -> dict:
 def _save(root: Path, asks: dict) -> None:
     path = store_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump({"asks": asks}, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    atomic_write_text(path, yaml.safe_dump({"asks": asks}, sort_keys=False, allow_unicode=True))
 
 
 def sync_profile_gaps(root: Path, gaps: list[ProfileGap], today: str | None = None) -> dict:

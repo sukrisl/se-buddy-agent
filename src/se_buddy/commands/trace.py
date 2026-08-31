@@ -111,21 +111,38 @@ def _reverse_closure(model, target, depth: int) -> list[tuple[object, str]]:
     capellambse: `hash(element)` raises `TypeError`) even though `==` works
     structurally - so dedup here is keyed on `.uuid` strings, never on the
     elements themselves or a `set()` of them.
+
+    Two separate `.uuid` sets are kept on purpose - a code review found the
+    original single `visited` set conflated "already queued as a BFS node"
+    with "already recorded as an edge," so a second, distinct
+    attribute-edge into an object already reached (e.g. an object that
+    references the target through two different relationship attrs, or is
+    reached again one level deeper via a different attr) was silently
+    dropped from `found` instead of reported. `visited_uuids` still
+    controls BFS expansion (each node's neighbours are only walked once);
+    `seen_edges`, keyed on `(uuid, attr)`, controls what gets recorded, so
+    every distinct edge into an object is kept even when the object itself
+    was already visited.
     """
-    visited = {target.uuid}
+    visited_uuids = {target.uuid}
     frontier = {target.uuid: target}
     found: list[tuple[object, str]] = []
+    seen_edges: set[tuple[str, str]] = set()
 
     for _ in range(depth):
         next_frontier: dict[str, object] = {}
         for obj in frontier.values():
             for referencing_obj, attr, _index in model.find_references(obj):
                 ref_uuid = getattr(referencing_obj, "uuid", None)
-                if ref_uuid is None or ref_uuid in visited:
+                if ref_uuid is None:
                     continue
-                visited.add(ref_uuid)
-                next_frontier[ref_uuid] = referencing_obj
-                found.append((referencing_obj, attr))
+                edge_key = (ref_uuid, attr)
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    found.append((referencing_obj, attr))
+                if ref_uuid not in visited_uuids:
+                    visited_uuids.add(ref_uuid)
+                    next_frontier[ref_uuid] = referencing_obj
         if not next_frontier:
             break
         frontier = next_frontier

@@ -12,15 +12,39 @@ real git repo and is exercised live rather than by unit test.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
 import yaml
 
 from se_buddy.ask_store import open_asks
+from se_buddy.atomic_write import atomic_write_text
 from se_buddy.model import hash_model_files
 from se_buddy.registers import load_register
 from se_buddy.schemas import REGISTER_PREFIXES
+
+_VALID_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+class BaselineError(Exception):
+    """A baseline name is unsafe, or `write_baseline` would silently
+    overwrite an existing one."""
+
+
+def _validate_name(name: str) -> None:
+    """`name` becomes both a filename (`f"{name}.yaml"`) and a git tag - a
+    code review found no validation at all here, so `..`/`/` in `name`
+    could write outside `baselines_dir`. Excluding `/` and `\\` from the
+    allowed charset alone already rules out a multi-segment path; `..` and
+    a trailing `.` are rejected too since Windows treats a trailing dot
+    specially and git rejects `..` in tag names outright.
+    """
+    if not _VALID_NAME.match(name) or ".." in name or name.endswith("."):
+        raise BaselineError(
+            f"{name!r} is not a valid baseline name - use letters, digits, '.', '_', '-' only, "
+            "no '..' and no trailing '.'"
+        )
 
 
 def baselines_dir(root: Path) -> Path:
@@ -50,11 +74,16 @@ def build_manifest(root: Path, aird_path: str | Path, today: str | None = None) 
     }
 
 
-def write_baseline(root: Path, name: str, aird_path: str | Path, today: str | None = None) -> Path:
-    manifest = build_manifest(root, aird_path, today=today)
+def write_baseline(
+    root: Path, name: str, aird_path: str | Path, today: str | None = None, *, force: bool = False
+) -> Path:
+    _validate_name(name)
     path = baseline_path(root, name)
+    if path.exists() and not force:
+        raise BaselineError(f"{path} already exists - pass force=True to overwrite")
+    manifest = build_manifest(root, aird_path, today=today)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    atomic_write_text(path, yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True))
     return path
 
 

@@ -11,8 +11,12 @@ from se_buddy.changes import find_followup_item, load_change, load_followup
 from se_buddy.commands._common import add_limit_argument, add_model_argument, load_model_or_die, truncate
 from se_buddy.decisions import load_adr
 from se_buddy.memory import render_citation
+from se_buddy.memory_domains import find_row as find_memory_row
 from se_buddy.proposals import load_cp
 from se_buddy.registers import find_row
+from se_buddy.schemas import MEMORY_DOMAIN_PREFIXES
+
+_MEMORY_PREFIX_TO_DOMAIN = {prefix: domain for domain, prefix in MEMORY_DOMAIN_PREFIXES.items()}
 
 # Behavioural elements are read, not judged (spec Sec.2.2) - this command
 # treats a FunctionalChain/Scenario/StateMachine exactly like a structural
@@ -148,6 +152,17 @@ def _show_record(root: Path, record_id: str, prefix: str) -> int | None:
             print(f"  answered: {item.get('answered') or 'not yet'}")
             return 0
         return None
+
+    if prefix in _MEMORY_PREFIX_TO_DOMAIN:
+        domain = _MEMORY_PREFIX_TO_DOMAIN[prefix]
+        row = find_memory_row(root, domain, record_id)
+        if row is None:
+            return None
+        print(f"{prefix} {record_id} ({domain})")
+        print(f"  {render_citation(record_id, row.get('statement', ''))}")
+        print(f"  status: {row.get('status', '?')}")
+        print(f"  provenance: {row.get('provenance', '')}")
+        return 0
 
     register_hit = find_row(root, record_id)
     if register_hit is not None:

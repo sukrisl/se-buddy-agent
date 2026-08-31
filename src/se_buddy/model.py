@@ -69,11 +69,19 @@ def resolve_model_path(root: Path, explicit: str | None) -> str:
 
 
 def load_model(root: Path, explicit: str | None = None) -> capellambse.MelodyModel:
-    """Loads a model, resolving its location per `resolve_model_path`."""
+    """Loads a model, resolving its location per `resolve_model_path`.
+
+    Catches every exception `loadcli`/the underlying parse can raise, not a
+    hand-picked subset - a code review found `lxml` XML-syntax errors and a
+    few other capellambse-internal failure types slipping past the original
+    `(FileNotFoundError, ValueError, TypeError)` list as raw tracebacks, the
+    exact thing this function exists to prevent. `KeyboardInterrupt`/
+    `SystemExit` still propagate since they're not `Exception` subclasses.
+    """
     path = resolve_model_path(root, explicit)
     try:
         return cli_helpers.loadcli(path)
-    except (FileNotFoundError, ValueError, TypeError) as exc:
+    except Exception as exc:
         raise ModelResolutionError(f"could not load a model from {path!r}: {exc}") from exc
 
 

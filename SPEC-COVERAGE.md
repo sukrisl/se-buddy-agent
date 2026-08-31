@@ -185,6 +185,156 @@ chose to build everything else in this phase and leave this one
 unbuilt, with its `SKILL.md` stating that plainly rather than presenting
 a diagram capability that doesn't exist.
 
+## Phase 3 hardening pass — pre-production code review, all findings fixed
+
+Before pointing this agent at a real Capella project, the full implementation
+(every phase, not just the uncommitted diff) was reviewed end-to-end for
+defects — 10 independent finder angles plus a verification pass, per the
+`code-review` skill at `--level high`. 15 findings were confirmed; all 15 were
+fixed, each with a regression test proving the fix, and the full suite (179
+tests) passes. Two more real gaps were found and fixed while writing those
+regression tests, not part of the formal 15 but the same severity class.
+
+**Fixed in `src/se_buddy/apply_lifecycle.py` (the most consequential group —
+this module is the entire write-safety net):**
+
+- `--delete` was not actually enforced: `apply_cp()` only ran the diagram-
+  reference safety check `if delete and preflight_result.deleted`, so a
+  proposal that deleted elements with `--delete` simply omitted went through
+  unchecked, silently violating Sec.2.3's "deletion requires a distinct flag."
+  Now refuses first, naming the missing flag.
+- `check_tree_clean()` composed `cwd=aird_path.parent` together with git path
+  arguments that still contained that same parent (`str(aird_path)`,
+  `str(capella_path)`), doubling the segment (`model/model/Project.aird`)
+  whenever the model lived in a subdirectory — git silently matched nothing,
+  so a genuinely dirty tree was reported clean. Confirmed live before the fix
+  (a real dirty tree, real revert, no refusal). Fixed by passing bare
+  filenames as the path arguments; regression test specifically uses a
+  subdirectory layout with a relative path and a real process `cwd`, the
+  exact scenario every prior test happened to avoid.
+- Two call sites (`_check_no_diagram_references()` and one inside
+  `apply_cp()`) loaded the model with raw `load_model()`, letting
+  `ModelResolutionError` escape past `write_apply.py`'s `except ApplyError` as
+  an uncaught crash. Both now go through a new `_load_model_or_apply_error()`
+  wrapper.
+- The `file_change()` call that records the `CHANGE` sat outside the
+  restore-guarded block: a failure there (e.g. a malformed pre-existing
+  followup file elsewhere in the project) left the model saved and modified
+  with no record and no restore, and raised `ChangeError`, a type the caller
+  never caught. Now inside the same try/restore guard as the save itself.
+- Removed a genuine inefficiency found while fixing the above: the model was
+  loaded and the decl document applied twice (once to preflight, once "for
+  real") — always identical once `check_tree_clean`/`check_drift` had already
+  confirmed nothing changed in between. `apply_cp()` now saves the preflight
+  model directly.
+
+**Fixed in `src/se_buddy/model.py`:** `load_model()`'s except clause only
+caught `(FileNotFoundError, ValueError, TypeError)`, letting other capellambse
+load failures (e.g. an XML syntax error) through as a raw traceback instead of
+a clean `ModelResolutionError` — broadened to `except Exception`.
+
+**Fixed in `src/se_buddy/baseline.py`:** `write_baseline(root, name, ...)` used
+`name` directly to build a file path and a git tag with no validation at all —
+a `name` containing `..`/`/` could write outside `baselines_dir`, and an
+existing baseline was silently overwritten. Added `BaselineError`, a
+`_validate_name()` charset/`..`/trailing-`.` check, an existence check with an
+explicit `force: bool = False` (matching `scaffold_profile`'s own pattern),
+and a `--force` flag on `write-baseline`.
+
+**Fixed in `src/se_buddy/commands/write_revert.py`:** `revert_change()` called
+`check_tree_clean()` (which raises `ApplyError`) without catching it, so the
+most common revert scenario — reverting right after an apply, which never
+commits by design (Sec.10.2: "Git history is the engineer's") — crashed with
+a type `run()`'s own `except RevertError` never caught. Confirmed live: a real
+apply followed by a real revert attempt on the still-dirty tree raised a raw
+`ApplyError` before the fix. Now wrapped and re-raised as `RevertError`.
+
+**Fixed in `src/se_buddy/memory_domains.py`:** `upsert_row()` rebuilt its saved
+list from only the id-bearing rows (`by_id.values()`), silently dropping any
+row with no `id` (e.g. hand-edited YAML) on the next write to that domain.
+Now preserves id-less rows across the save. Also added `find_row()`, needed by
+the `show` fix below.
+
+**Fixed in `src/se_buddy/commands/show.py`:** `_show_record()` had no dispatch
+branch at all for `PRIN`/`ASSUME` ids — `se-buddy show PRIN-0001` fell through
+to "not found" for a principle that plainly existed. Added the branch via
+`memory_domains.find_row()` and a reverse `{prefix: domain}` lookup built from
+`MEMORY_DOMAIN_PREFIXES`.
+
+**Fixed in `src/se_buddy/commands/trace.py`:** `_reverse_closure()`'s single
+`visited` set conflated "already queued as a BFS node" with "already recorded
+an edge" — a second, distinct attribute-edge into an object already reached
+(e.g. an object referencing the target through two different relationship
+attributes) was silently dropped from the `traced from` count instead of
+reported. Split into `visited_uuids` (controls BFS expansion) and `seen_edges`
+keyed on `(uuid, attr)` (controls what gets recorded). New `tests/test_trace.py`
+covers this with fake objects, isolating the pure BFS/dedup logic.
+
+**Fixed in `src/se_buddy/gate.py`:** `confirm()`'s `input("> ")` could raise
+`EOFError` (stdin closed after `isatty()` passed but before a line arrived),
+escaping past every caller's `except GateRefused` as a raw crash instead of
+the clean refusal every other "no confirmation given" path produces. Now
+caught and converted to `GateRefused`.
+
+**Fixed in `src/se_buddy/changes.py`:** `file_change()` wrote the `CHANGE`
+record before the followup checklist. A crash between the two writes left a
+`CHANGE` on disk with no followup file at all, so `any_followup_open()`
+(which only scans `*.followup.yaml`) saw nothing owed and would have let a
+later apply through with a real `DRAW` item silently lost. Write order
+reversed: followup first, so the same crash instead leaves an orphaned
+followup file with no matching `CHANGE` yet — still detected, still blocking,
+the fail-safe direction.
+
+**Fixed in `hooks/block_write_verbs.py`:** the matcher regex
+(`se-buddy(\.cmd)?\s+write-(\w+)`) required `write-` to follow `se-buddy`/
+`se-buddy.cmd` with nothing but whitespace between them, missing both
+`se-buddy --model x.aird write-apply ...` (a completely normal invocation
+with flags before the verb) and the module-invocation form
+`python -m se_buddy write-apply ...` (underscore, no literal `se-buddy` token
+at all). Split into two independent checks — does the command mention
+`se-buddy`/`se_buddy` anywhere, and does it contain a `write-*` verb anywhere
+— trading a small false-positive risk for much better recall, the stated-
+correct tradeoff for a defence-in-depth hook per Sec.7.3's own philosophy
+("a hook matching a drifting list of verb names is a hook that stops working
+quietly").
+
+**Fixed in `src/se_buddy/schemas.py`:**
+- `diagram_cost` was missing from `_CP_PRESENCE_ONLY_FIELDS`, so `bool(0)`
+  treated a legitimate "nothing to draw" answer as absent and warned about it
+  on every CP that had one — added alongside `unknowns`/`open_questions`.
+- `validate_change()` computed `present` for every field, then unconditionally
+  overwrote it with a second, near-identical check specifically for
+  `manual_followup` — a dead no-op, since `[] not in (None, "")` and
+  `[] is not None` already agree for every real value that field takes.
+  Rewritten to share `validate_cp`'s actual presence-only-field-set pattern.
+
+**Two more real gaps found while writing regression tests for the above (not
+part of the formal 15, same severity class):**
+
+- No test file existed for `write_revert.py` at all. The new
+  `tests/test_write_revert.py` both covers the fix above and independently
+  confirms — for the first time with an automated test, not just the manual
+  live check AC-0005 recorded — that a full propose → apply → commit → revert
+  cycle restores the `.capella` file byte-identical.
+- **Every YAML writer in this codebase used a plain `path.write_text(...)`,
+  not atomic.** `write_text` truncates the target before writing the new
+  content, so a process killed mid-write (crash, `Ctrl-C`, disk full) left a
+  truncated, unparsable file in place of whatever was there before —
+  corrupting a `CHANGE` record, a register, a baseline, or the ask store, not
+  just failing to update it. Added `src/se_buddy/atomic_write.py`
+  (`atomic_write_text`: write to a temp file in the same directory, then
+  `os.replace()`, atomic on both POSIX and Windows) and switched every writer
+  to it: `changes.py`, `memory_domains.py`, `baseline.py`, `ask_store.py`,
+  `decisions.py`, `knowledge.py`, `proposals.py`, `registers.py`. Covered by
+  a new `tests/test_atomic_write.py`, including a simulated-crash case
+  proving the original file survives untouched.
+
+**Verification.** Every fix above has a passing regression test that fails
+against the pre-fix code (confirmed for the highest-severity ones by running
+them before the fix landed, not just after) — 12 new/extended test files, 179
+tests total, `PYTHONPATH=src vendor/.venv/Scripts/python.exe -m unittest
+discover -s tests` green throughout.
+
 ## Two gaps still open in the phasing table (Sec.11)
 
 1. **`se-buddy perspective [<layer>]`** — unchanged from Phase 2's note:

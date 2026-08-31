@@ -4,6 +4,54 @@ Format and purpose: spec Sec.5.5. Newest first, append-only, never rewritten.
 
 ---
 
+## AC-0006 — 2026-08-31 — Pre-production hardening: full code review, 15 findings fixed
+
+```
+surface   code (no CLI/schema surface change), hook, test
+breaking  no
+action    none
+why       before pointing this agent at a real Capella project, a full
+          review (not just the diff) of every phase's implementation was
+          asked for explicitly, to find what could still break against
+          real engineering data before it did
+```
+
+A `code-review --level high` pass (10 finder angles + verification) across
+the entire implementation confirmed 15 findings; all 15 were fixed, each
+with a regression test, plus two more real gaps found while writing those
+tests. Full detail, file by file: SPEC-COVERAGE.md's "Phase 3 hardening
+pass" section.
+
+The two most consequential: `--delete` was checked for diagram references
+only when passed, never enforced as *required* when a proposal actually
+deleted something, so an omitted flag let a deletion through unchecked;
+and `check_tree_clean()` silently reported a genuinely dirty tree as clean
+whenever the model lived in a subdirectory, because the git path arguments
+doubled the `cwd` prefix already applied. Both confirmed live, pre-fix,
+before being corrected. Also fixed: two swallowed-exception gaps in the
+apply lifecycle, an unvalidated baseline name (path traversal), a
+crash-not-a-refusal in `write revert` (the single most common revert
+scenario - right after an apply, tree still dirty by design), a dropped-
+row bug in `write memory`'s save path, a missing `show PRIN-nnnn`/
+`ASSUME-nnnn` dispatch branch, an edge-dropping bug in `trace`'s reverse
+closure, an uncaught `EOFError` in the TTY gate, a write-order bug in
+`file_change()` that could silently lose an owed `DRAW` followup on a
+crash, a `write-*` hook regex too narrow to catch its own module-
+invocation form, and two `schemas.py` presence-check bugs (`diagram_cost:
+0` read as missing; a dead no-op branch in `validate_change`). Beyond the
+15: no automated test existed for `write_revert.py` at all (now does), and
+every YAML writer in this codebase used a non-atomic `write_text`, risking
+a truncated/corrupted record file on a crash mid-write - a new
+`atomic_write_text()` (temp file + `os.replace()`) now backs all eight of
+them.
+
+**Verified by regression test, not just by inspection.** Every fix has a
+test that demonstrably exercises the original failure mode (several
+confirmed failing against the pre-fix code before the fix landed, not
+assumed). 179 tests total, full suite green.
+
+---
+
 ## AC-0005 — 2026-08-31 — Phase 3: controlled modification
 
 ```

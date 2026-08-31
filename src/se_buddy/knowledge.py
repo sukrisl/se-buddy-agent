@@ -13,6 +13,8 @@ from pathlib import Path
 
 import yaml
 
+from se_buddy.atomic_write import atomic_write_text
+
 REQUIRED_FIELDS = ("ask_id", "act", "answer", "date", "provenance")
 
 
@@ -40,7 +42,4 @@ def append_knowledge_row(root: Path, row: dict) -> None:
     rows.append(row)
     path = knowledge_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump({"rows": rows}, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    atomic_write_text(path, yaml.safe_dump({"rows": rows}, sort_keys=False, allow_unicode=True))
