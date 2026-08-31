@@ -13,6 +13,12 @@ condition clears. That reconciliation is what makes "an ask raised in one
 session is closed in another" (spec Sec.11's Phase 2 gate) true: the id
 this command prints today is the same id `se-buddy write answer` (or a
 later `asks` run noticing the gap cleared) will act on tomorrow.
+
+Also merges in every open `DRAW` item from every `CHANGE-nnnn.followup.
+yaml` (spec Sec.10.3) - both are "every open ask" as far as an engineer
+is concerned, even though they're stored in different files (spec
+Sec.6.1's followup checklists vs the automatically-detected gaps `asks.
+yaml` tracks).
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from se_buddy.ask_store import open_asks, sync_profile_gaps
+from se_buddy.changes import open_followup_items
 from se_buddy.profile import check_completeness
 
 
@@ -32,13 +39,18 @@ def run(args) -> int:
     root = Path.cwd()
     gaps = check_completeness(root)
     sync_profile_gaps(root, gaps)
-    open_ = open_asks(root)
 
-    if not open_:
+    combined = dict(open_asks(root))
+    for _change_id, item in open_followup_items(root):
+        combined[item["id"]] = item
+
+    if not combined:
         print("no open asks")
         return 0
 
-    ordered = sorted(open_.items(), key=lambda kv: (kv[1].get("sequence") is None, kv[1].get("sequence", 0), kv[0]))
+    ordered = sorted(
+        combined.items(), key=lambda kv: (kv[1].get("sequence") is None, kv[1].get("sequence", 0), kv[0])
+    )
     print(f"{len(ordered)} open ask(s)")
     for ask_id, ask in ordered:
         print(f"  id         {ask_id}")

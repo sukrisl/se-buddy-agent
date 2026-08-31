@@ -9,9 +9,22 @@ import unittest
 from pathlib import Path
 
 from se_buddy.ask_store import get_ask, sync_profile_gaps
+from se_buddy.changes import file_change, load_followup
 from se_buddy.commands.write_answer import AnswerError, answer_ask
 from se_buddy.knowledge import load_knowledge
 from se_buddy.profile import ProfileGap
+
+VALID_CHANGE = {
+    "claim": "x",
+    "tier": "judgement",
+    "date": "2026-08-31",
+    "supersedes": [],
+    "proposal": None,
+    "authority": "engineer said go",
+    "diff_summary": "x",
+    "validation_summary": "x",
+    "manual_followup": [],
+}
 
 
 def _raise_one_ask(root: Path, act: str, object_: str = "test object") -> str:
@@ -78,14 +91,38 @@ class TestPrioritise(unittest.TestCase):
                 answer_ask(root, prioritise_ask, {"sequence": ["ASK-9999"]})
 
 
-class TestRefusedActs(unittest.TestCase):
-    def test_draw_is_refused_no_followup_exists(self):
+class TestDraw(unittest.TestCase):
+    def test_draw_ticks_the_matching_followup_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            ask_id = _raise_one_ask(root, "DRAW")
+            followup = [{"object": "o", "done_when": "drawn on the diagram", "blocks": "b", "default": "n"}]
+            file_change(root, "CHANGE-0001", dict(VALID_CHANGE), followup)
+            ask_id = load_followup(root, "CHANGE-0001")[0]["id"]
+
+            landed = answer_ask(root, ask_id, {})
+
+            self.assertEqual(landed, "se-buddy/changes/CHANGE-0001.followup.yaml")
+            item = load_followup(root, "CHANGE-0001")[0]
+            self.assertIsNotNone(item["answered"])
+            self.assertEqual(item["answered"]["act"], "DRAW")
+
+    def test_already_ticked_draw_item_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            followup = [{"object": "o", "done_when": "d", "blocks": "b", "default": "n"}]
+            file_change(root, "CHANGE-0001", dict(VALID_CHANGE), followup)
+            ask_id = load_followup(root, "CHANGE-0001")[0]["id"]
+            answer_ask(root, ask_id, {})
             with self.assertRaises(AnswerError):
                 answer_ask(root, ask_id, {})
 
+    def test_draw_ask_not_in_any_followup_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(AnswerError):
+                answer_ask(Path(tmp), "ASK-9999", {})
+
+
+class TestRefusedActs(unittest.TestCase):
     def test_supply_is_refused_names_write_memory_or_register(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

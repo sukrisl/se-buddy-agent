@@ -4,6 +4,66 @@ Format and purpose: spec Sec.5.5. Newest first, append-only, never rewritten.
 
 ---
 
+## AC-0005 — 2026-08-31 — Phase 3: controlled modification
+
+```
+surface   cli, schema, hook, skill
+breaking  no
+action    none
+why       the agent can now propose, dry-run, apply, validate, record and
+          revert real changes to the model, with a snapshot/restore
+          safety net and the write path's second defence layer (hooks) -
+          this is the phase spec Sec.11 calls "a real change applies and
+          reverts cleanly"
+```
+
+Adds `write-propose` (automatic authority, spec Sec.7.3's explicit
+carve-out - the only write verb with no TTY gate); `plan` (a dry run,
+safe by construction - `capellambse.decl.apply()` confirmed directly to
+never touch the filesystem itself); `write-apply`
+(`src/se_buddy/apply_lifecycle.py`, the full spec Sec.10.2 sequence:
+check tree, check drift, preflight-validate targets, snapshot, apply,
+save, re-parse, six-layer validate, diff, record - restores the snapshot
+on any failure); `write-record` (manual Capella work, no snapshot since
+nothing was ever under se-buddy's control to snapshot); `write-revert`
+(restores a `CHANGE`'s snapshot, refuses cleanly if none exists);
+`validate` (`src/se_buddy/validate.py`, five real automated layers plus
+`architectural`, which reports `UNKNOWN` and names the recorded
+viewpoints rather than fabricating a verdict on free-text design rules no
+deterministic check can read); `write-answer`'s `DRAW` case (now ticks a
+real `CHANGE-nnnn.followup.yaml` entry, completing what Phase 2 stubbed as
+a refusal); `followup` (renders checklists as Markdown); `show`'s
+extension to resolve `ADR`/`CP`/`CHANGE`/`ASK`/register-row ids, not only
+model uuids (a real staleness bug found and fixed, not spec-mandated on
+its own); and both write-guard hooks
+(`hooks/hooks.json`, `hooks/block_capella_write.py`,
+`hooks/block_write_verbs.py` - Python, not shell, for the same Windows-
+portability reason `bin/se-buddy.cmd` exists).
+
+**Verified live and thoroughly, not just unit-tested.** The single most
+consequential run: proposed a real change against the real `test7_0`
+fixture, applied it for real (the `.capella` file on disk changed, a
+fresh model reload confirmed the new element persisted), then reverted it
+and confirmed the file was restored **byte-identical** to before. Every
+write verb this codebase has ever shipped - Phase 2's and this phase's -
+was invoked directly from this session's own non-interactive shell and
+refused every time, which is precisely spec Sec.13 Question 8's
+prescribed attack. `validate`'s `interface` layer produces genuine,
+non-contrived findings on the real fixture (confirmed by direct
+introspection before writing the check, not arranged after). The two
+hooks' own logic was tested directly against the exact JSON shape Claude
+Code sends; live firing inside a real, enabled plugin session was not
+verified, and is stated as such rather than assumed.
+
+**One dependency deferred by explicit decision:** `model-export`/
+`se-buddy export` needs `capellambse-context-diagrams`, confirmed not
+present anywhere in this repo. Left unbuilt, with `model-export`'s
+`SKILL.md` saying so plainly. `se-buddy perspective` remains the other
+open phasing-table gap, carried over from Phase 2, still unblocking
+nothing. See `SPEC-COVERAGE.md`.
+
+---
+
 ## AC-0004 — 2026-08-31 — Phase 2, second pass: write memory
 
 ```

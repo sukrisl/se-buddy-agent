@@ -85,6 +85,38 @@ ADR_EXTRA_FIELDS = (
     "authority",
 )
 
+# A CP's fields beyond the base record (spec Sec.9's CP row): "rejected if
+# facts, alternatives, unknowns, open questions, verification implications
+# or provenance are missing" - those six are enforced; the rest (including
+# `proposed_changes` itself) are required but not enforced by the schema,
+# literal to spec Sec.9's own wording even though a CP with no changes to
+# propose is of limited use - `se-buddy plan`/`write apply` separately
+# refuse to act on an empty `proposed_changes`, as their own precondition.
+CP_EXTRA_FIELDS = (
+    "intent",
+    "facts",
+    "assumptions",
+    "unknowns",
+    "affected_elements",
+    "proposed_changes",
+    "alternatives",
+    "verification_implications",
+    "open_questions",
+    "diagram_cost",
+    "provenance",
+)
+CP_ENFORCED_FIELDS = frozenset(
+    {"facts", "alternatives", "unknowns", "open_questions", "verification_implications", "provenance"}
+)
+
+# A CHANGE's fields beyond the base record (spec Sec.9's CHANGE row):
+# "cannot contain the diff or the report; manual_followup required."
+# `authority` is enforced too - a CHANGE with no authority is exactly the
+# unauthorised model write spec Sec.2.3 exists to prevent, whether it came
+# from `write apply --authorized-by` or `write record`'s own draft.
+CHANGE_EXTRA_FIELDS = ("proposal", "authority", "diff_summary", "validation_summary", "manual_followup")
+CHANGE_ENFORCED_FIELDS = frozenset({"authority", "manual_followup"})
+
 
 class SchemaError(ValueError):
     """A record or ask is missing a field spec Sec.9 marks as enforced."""
@@ -225,6 +257,65 @@ def validate_memory_row(domain: str, data: dict) -> ValidationResult:
     for field in ("provenance", "status"):
         if not data.get(field):
             warnings.append(f"{field} is required but not enforced (spec Sec.9)")
+
+    return ValidationResult(tuple(errors), tuple(warnings))
+
+
+_CP_PRESENCE_ONLY_FIELDS = frozenset({"unknowns", "open_questions"})
+
+
+def validate_cp(data: dict) -> ValidationResult:
+    """Validates a CP: the base record fields, plus Sec.9's CP row.
+
+    `facts`, `alternatives`, `unknowns`, `open_questions`,
+    `verification_implications` and `provenance` are enforced - Sec.9,
+    verbatim: "rejected if [these] are missing." `unknowns` and
+    `open_questions` are checked for *presence*, not truthiness - an
+    empty list is a real, good answer ("nothing outstanding"), the same
+    treatment `validate_change` gives `manual_followup`.
+    """
+    base = validate_record_base(data)
+    errors = list(base.errors)
+    warnings = list(base.warnings)
+
+    for field in CP_EXTRA_FIELDS:
+        if field in _CP_PRESENCE_ONLY_FIELDS:
+            present = field in data and data[field] is not None
+        else:
+            present = bool(data.get(field))
+        if present:
+            continue
+        if field in CP_ENFORCED_FIELDS:
+            errors.append(f"{field} is required on every CP (spec Sec.9: enforced)")
+        else:
+            warnings.append(f"{field} is required but not enforced on a CP (spec Sec.9)")
+
+    return ValidationResult(tuple(errors), tuple(warnings))
+
+
+def validate_change(data: dict) -> ValidationResult:
+    """Validates a CHANGE: the base record fields, plus Sec.9's CHANGE row.
+
+    `authority` and `manual_followup` are enforced - Sec.9: "manual_followup
+    required," and an unauthorised CHANGE is exactly what spec Sec.2.3
+    exists to prevent. `manual_followup` is checked for *presence*, not
+    truthiness - an empty list is a valid, meaningful answer ("nothing left
+    to draw by hand"), same treatment as the base record's `supersedes`.
+    """
+    base = validate_record_base(data)
+    errors = list(base.errors)
+    warnings = list(base.warnings)
+
+    for field in CHANGE_EXTRA_FIELDS:
+        present = field in data and data[field] not in (None, "")
+        if field == "manual_followup":
+            present = field in data and data[field] is not None
+        if present:
+            continue
+        if field in CHANGE_ENFORCED_FIELDS:
+            errors.append(f"{field} is required on every CHANGE (spec Sec.9: enforced)")
+        else:
+            warnings.append(f"{field} is required but not enforced on a CHANGE (spec Sec.9)")
 
     return ValidationResult(tuple(errors), tuple(warnings))
 

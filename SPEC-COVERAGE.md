@@ -7,13 +7,14 @@ instructed — whether it could be enforced and why it is not yet.
 
 This file grows one phase at a time (spec Sec.11), plus at least one
 documented second pass within a phase when something surfaced during
-implementation was worth resolving before moving on (Phase 2's below).
-It now covers Phase 0 (bootstrap), Phase 1 (the read path), and Phase 2
-(registers, `write register`, `write answer`, `write baseline`, the TTY
-gate, and — added in a second pass once the gap below was found —
-`write memory`). Requirements that need the modelling write path or a
-second installed project are out of scope until Phase 3/4 — listed at the
-bottom as not-yet-applicable, not as failing.
+implementation was worth resolving before moving on (Phase 2's below). It
+now covers Phase 0 (bootstrap), Phase 1 (the read path), Phase 2
+(registers, `write register`/`answer`/`baseline`/`memory`, the TTY gate),
+and Phase 3 (the full modelling write path: `write propose`/`plan`/
+`write apply`/`write record`/`write revert`, six-layer `validate`, both
+write-guard hooks). Requirements that need a second installed project are
+out of scope until Phase 4 — listed at the bottom as not-yet-applicable,
+not as failing.
 
 ## Phase 0 requirements
 
@@ -150,25 +151,69 @@ alongside the `write memory` question above) — `arch-perspective`'s skill
 already works via `inspect`/`search`/`show`/`trace` without it, so
 nothing is currently blocked. Revisit if a real need shows up.
 
-## Not yet applicable (later phases)
+## Phase 3 requirements
 
-Sec.13's review questions 1–3, 6, 9, 10, 12–16 need the modelling write
-path, hooks, or a second installed project — Phase 3/4. Question 7 ("is
-there a second representation of the registers or the model anywhere?")
-is answered now: no — `se_buddy.registers` is the only reader/writer of
-register files, and `trace`'s register-citation logic reads through it
-rather than re-deriving register content. Question 11 was answered in
-Phase 0.
+| # | Requirement | Spec | Where | Status |
+| - | --- | --- | --- | --- |
+| 30 | `write propose` files a `CP-nnnn` with automatic authority (no TTY gate); `proposed_changes` is a real `capellambse.decl` document, not a description of one | Sec.7.1, Sec.7.3, Sec.9 | [src/se_buddy/proposals.py](src/se_buddy/proposals.py), [src/se_buddy/commands/write_propose.py](src/se_buddy/commands/write_propose.py) | **Enforced.** Verified live through the real launcher against the real `test7_0` fixture: filed a real CP with a real `!uuid`-targeted decl document. `facts`/`alternatives`/`unknowns`/`open_questions`/`verification_implications`/`provenance` enforced per Sec.9's exact wording, with empty lists for `unknowns`/`open_questions` correctly accepted as real, complete answers (not treated as missing) |
+| 31 | `se-buddy plan CP-nnnn`: applies the decl document to a model in memory, never saves, reports what would change and what would need drawing | Sec.7.3, Sec.7.1 | [src/se_buddy/decl_ops.py](src/se_buddy/decl_ops.py), [src/se_buddy/commands/plan.py](src/se_buddy/commands/plan.py) | **Enforced.** Verified live and directly: ran `plan` against the real fixture, confirmed the reported counts (2 elements, matching a separately-run direct `dry_run()` check), then `git status` on the model file confirmed byte-for-byte nothing was written to disk |
+| 32 | The full apply lifecycle (Sec.10.2): check tree clean → check drift → validate targets → snapshot → apply → re-parse → validate → diff → record; leaves the model exactly as it was on any failure | Sec.10.2 | [src/se_buddy/apply_lifecycle.py](src/se_buddy/apply_lifecycle.py) `apply_cp()`, [src/se_buddy/commands/write_apply.py](src/se_buddy/commands/write_apply.py) | **Enforced**, and this is the one I verified most thoroughly: 13 direct unit tests covering every precondition and failure path (dirty tree, drift, bad target reference, open followup blocking a new apply — each confirmed to leave *no* snapshot behind), plus a full live run against the real fixture in a real git repo: applied a real CP, confirmed the `.capella` file on disk actually changed and the new element persisted through a fresh reload, then reverted and confirmed the file was restored **byte-identical** to before |
+| 33 | `--delete` refuses if any diagram still references the target (decision 3, this phase's plan) | Sec.10.2, Sec.7.4 | `apply_lifecycle._check_no_diagram_references` | **Enforced**, unit-tested against a real element with real diagram references from the fixture (Hogwarts LC, 3 diagrams) |
+| 34 | Six validation layers, five real + `architectural` honestly `UNKNOWN` (decision 1) | Sec.7.2 | [src/se_buddy/validate.py](src/se_buddy/validate.py), [src/se_buddy/commands/validate.py](src/se_buddy/commands/validate.py) | **Enforced.** Every layer tested against the real fixture, including two layers that produce genuine, non-contrived findings on it as-is (`interface`: 27/31 functional exchanges and 21/24 component exchanges carry no `ExchangeItem`, confirmed by direct introspection before writing the check) — not manufactured test data |
+| 35 | `write record`: records manual Capella work, no snapshot/apply (nothing to snapshot), `validation_summary` computed for real against the current model | Sec.7.3 | [src/se_buddy/commands/write_record.py](src/se_buddy/commands/write_record.py) | **Enforced.** TTY-gated; `write revert` on a `write record`-created `CHANGE` refuses cleanly (no snapshot exists) rather than pretending to revert something it never controlled |
+| 36 | `write revert CHANGE-nnnn` restores from the per-apply snapshot; refuses on a dirty tree or a missing snapshot | Sec.7.3, Sec.10.1 | [src/se_buddy/commands/write_revert.py](src/se_buddy/commands/write_revert.py) | **Enforced.** Covered by the same live round-trip as item 32 above (byte-identical restore confirmed) |
+| 37 | `write answer`'s `DRAW` case ticks the matching `CHANGE-nnnn.followup.yaml` entry (Phase 2 stubbed this as a refusal since nothing existed to tick yet) | Sec.3 D8, Sec.10.3 | [src/se_buddy/changes.py](src/se_buddy/changes.py), [src/se_buddy/commands/write_answer.py](src/se_buddy/commands/write_answer.py) | **Enforced.** Verified live: ticked a real `DRAW` ask from a real followup checklist, confirmed via `se-buddy followup`'s Markdown rendering that the checkbox flipped |
+| 38 | `se-buddy asks` merges open `DRAW` followup items in with `ask_store`'s asks; `se-buddy followup` renders every checklist as Markdown | Sec.6.1, Sec.7.3, Sec.10.3 | [src/se_buddy/commands/asks.py](src/se_buddy/commands/asks.py), [src/se_buddy/commands/followup.py](src/se_buddy/commands/followup.py) | **Enforced.** Verified live: a real apply's 2 `DRAW` items showed up correctly in both `asks` (merged with 2 pre-existing `SUPPLY` items) and `followup`'s rendered checklist |
+| 39 | `se-buddy show <id>` resolves `ADR`/`CP`/`CHANGE`/`ASK`/register-row ids, not only model uuids (Phase 1/2 left this returning a stale "not retrievable yet" message) | Sec.7.3 | [src/se_buddy/commands/show.py](src/se_buddy/commands/show.py) `_show_record()` | **Enforced.** A real gap found and fixed in this phase, not spec-mandated on its own but a direct consequence of records now existing; 7 unit tests plus a live check against real `CP`/`CHANGE` records |
+| 40 | Both write-guard hooks (spec Sec.10.1): block `Edit`/`Write` on `*.capella`/`*.aird`; block any `se-buddy write-*` Bash invocation except `write-propose` | Sec.10.1 | [hooks/hooks.json](hooks/hooks.json), [hooks/block_capella_write.py](hooks/block_capella_write.py), [hooks/block_write_verbs.py](hooks/block_write_verbs.py) | **The scripts' own logic is enforced and directly tested** (real `PreToolUse`-shaped JSON piped into each script: `.capella`/`.aird` block correctly, unrelated files pass, every `write-*` verb blocks except `write-propose` in both `bin/se-buddy` and `bin/se-buddy.cmd` invocation styles, malformed input fails open). **Not verified: live firing inside a real Claude Code session.** Hooks fire inside Claude Code's own tool-dispatch loop once a plugin is actually enabled — this session has no way to install this repo as a real enabled plugin and trigger that loop from within itself, the same category of limit Phase 2 hit with the TTY gate's positive path. Stated plainly, not claimed as verified |
+| 41 | Six modelling skills (`model-impact`, `model-plan`, `model-apply`, `model-validate`, `model-record`, `model-export`) | Sec.8.1 | [skills/](skills/) | **Instructed** (skill prose). `model-export` describes the procedure without a working command, by your explicit decision — see below |
 
-**Question 8 ("can the agent apply a change without a human keystroke?")
-is only fully answerable once `write apply` exists (Phase 3), but its
-underlying mechanism was tested now, on every write verb that currently
-exists.** The question's own prescribed attack — "allowlist the CLI... and
-invoke [it] from Bash" — is exactly what happened live in this phase:
-`write-register`, `write-answer`, `write-baseline` and (added in the
-second pass) `write-memory` were all invoked directly from this Bash tool,
-and all four refused. That doesn't close the question (it reopens the
-moment `write apply` exists and needs the same check run against it
-specifically, plus Phase 3's second defence layer), but it's real,
-positive evidence that the gate mechanism itself holds under the exact
-attack Sec.13 names, not a promise deferred to later.
+**Design note — `model_hash` on `CP-nnnn`, an addition Sec.9 doesn't name.**
+Sec.10.2's drift precondition ("the model hash matches what was last
+parsed") needs a reference point the spec's CP field list doesn't
+literally include. `write propose` now captures `hash_model_files()` at
+proposal time, and `write apply` checks the current hash against it,
+refusing and naming `write record` as the answer on a mismatch (Sec.10.2's
+own words) — documented as a completion, not spec text, same treatment as
+every prior phase's similar gaps.
+
+**Deferred by your explicit decision, not oversight: `model-export`/
+`se-buddy export`.** `capellambse-context-diagrams` is not vendored or
+otherwise present in this repo - confirmed directly, no trace anywhere
+under `vendor/`. Adding it is a genuinely new external dependency; you
+chose to build everything else in this phase and leave this one
+unbuilt, with its `SKILL.md` stating that plainly rather than presenting
+a diagram capability that doesn't exist.
+
+## Two gaps still open in the phasing table (Sec.11)
+
+1. **`se-buddy perspective [<layer>]`** — unchanged from Phase 2's note:
+   left unbuilt on your explicit decision, `arch-perspective`'s skill
+   already works without it.
+2. **`model-export`/`se-buddy export`** — see the design note above.
+
+## Not yet applicable (Phase 4)
+
+Sec.13's review question 12 ("did a second project install and run
+without editing the submodule?") needs a second installed project — the
+one thing genuinely still gated on a later phase. Every other question in
+Sec.13's list now has a real answer:
+
+- **Question 8** ("can the agent apply a change without a human
+  keystroke?") is now fully closed, not just partially evidenced as noted
+  in Phase 2. `write-apply` itself — the exact verb the question names —
+  was invoked directly from this session's own non-interactive shell and
+  refused, live, through the real launcher. Combined with Phase 2's
+  identical result on every other write verb, every write verb this
+  codebase has ever shipped has been directly attacked this way and has
+  refused every time.
+- **Question 14** ("does any command return an unbounded result set, or
+  truncate without saying so?") — every command that can return an
+  unbounded set (`inspect`, `search`, `show`, `trace`, `asks`, `register`,
+  `memory`, `validate`'s findings) bounds its output and reports
+  truncation; `validate`/`followup`/`asks` return bounded-by-construction
+  sets (one entry per real layer/checklist item/open ask) with nothing to
+  truncate.
+- **Question 15** ("does `apply` detect that the model changed outside the
+  agent, and refuse?") — yes, `check_drift()`, unit-tested and covered by
+  the live round-trip above.

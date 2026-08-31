@@ -11,7 +11,7 @@ Three parties do the work. Claude Code is the reasoning layer. The `se-buddy` co
 
 ## Status
 
-Phases 0–2 — see [log/log-0001-se_buddy_agent_spec.md](log/log-0001-se_buddy_agent_spec.md) Sec.11 for the phasing, and [SPEC-COVERAGE.md](SPEC-COVERAGE.md) for what is enforced so far. `se-buddy` can bootstrap itself, load a real Capella model, answer `inspect`/`search`/`show`/`trace`/`asks` against it (`trace` now also reaches into registers), and read/write the six registers and baselines — every write gated behind a real TTY confirmation, not a flag. The model itself still can't be modified — that starts in Phase 3.
+Phases 0–3 — see [log/log-0001-se_buddy_agent_spec.md](log/log-0001-se_buddy_agent_spec.md) Sec.11 for the phasing, and [SPEC-COVERAGE.md](SPEC-COVERAGE.md) for what is enforced so far. `se-buddy` can bootstrap itself, load a real Capella model, reason over it, read/write registers, principles, viewpoints, glossary and ADRs, and now propose, dry-run, apply, validate, record and revert real changes to the model — with a snapshot/restore safety net, six-layer validation, and both the TTY gate and the `PreToolUse` hooks guarding every write. Not yet proven: a second project installing this fresh (Phase 4).
 
 ## Prerequisites
 

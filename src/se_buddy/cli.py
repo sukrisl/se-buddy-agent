@@ -1,17 +1,14 @@
 """Command dispatch for `se-buddy` (spec Sec.7.3).
 
-Phase 2 (plus its second pass) adds `register`/`write-register`,
-`write-answer`, `baseline`/`write-baseline`, and `memory`/`write-memory`
-(principles/viewpoints/glossary/assumptions/decisions - `knowledge` is
-read-only here, populated only via `write-answer`). Still missing:
-`perspective`, `validate`, `followup`, `plan`, `export`, and every
-modelling-track write verb (`write-propose`/`write-apply`/`write-record`/
-`write-revert`) - see SPEC-COVERAGE.md for which of those are genuinely
-unassigned to any phase in the spec's own phasing table, versus scoped to
-Phase 3.
+Phase 3 adds `write-propose` (automatic authority - the one write verb
+with no TTY gate, spec Sec.7.3), `plan`, `write-apply`, `write-record`,
+`write-revert`, `validate`, `followup`. Still missing: `perspective` and
+`export` - flagged, not built, per SPEC-COVERAGE.md (both were explicit,
+scoped decisions, not oversights).
 
-Every `write-*` verb is TTY-gated (spec Sec.2.3, `se_buddy.gate`) - it
-will refuse when run from here, or from any other non-interactive shell.
+Every `write-*` verb except `write-propose` is TTY-gated (spec Sec.2.3,
+`se_buddy.gate`) - it will refuse when run from here, or from any other
+non-interactive shell.
 """
 
 from __future__ import annotations
@@ -23,16 +20,23 @@ from se_buddy import doctor
 from se_buddy.commands import (
     asks,
     baseline,
+    followup,
     inspect,
     memory,
+    plan,
     register,
     search,
     show,
     trace,
+    validate,
     write_answer,
+    write_apply,
     write_baseline,
     write_memory,
+    write_propose,
+    write_record,
     write_register,
+    write_revert,
 )
 
 # capellambse warns (FutureWarning) on every access to a deprecated alias or
@@ -62,10 +66,17 @@ def build_parser() -> argparse.ArgumentParser:
         register,
         baseline,
         memory,
+        plan,
+        validate,
+        followup,
         write_register,
         write_answer,
         write_baseline,
         write_memory,
+        write_propose,
+        write_apply,
+        write_record,
+        write_revert,
     ):
         module.add_parser(sub)
     return parser

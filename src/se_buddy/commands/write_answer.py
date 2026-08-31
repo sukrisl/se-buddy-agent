@@ -27,6 +27,7 @@ from pathlib import Path
 import yaml
 
 from se_buddy.ask_store import get_ask, mark_answered, set_sequence
+from se_buddy.changes import find_followup_item, mark_followup_item_done
 from se_buddy.gate import GateRefused, confirm
 from se_buddy.knowledge import append_knowledge_row
 
@@ -46,9 +47,22 @@ def answer_ask(root: Path, ask_id: str, answer: dict, today: str | None = None) 
     """Dispatches `answer` by the ask's act. Returns where it landed.
 
     Raises `AnswerError` for a refused act or a malformed answer - never
-    silently does nothing.
+    silently does nothing. `DRAW` asks live in a `CHANGE-nnnn.followup.yaml`
+    file, not `se_buddy.ask_store` (spec Sec.6.1) - checked first, since an
+    id collision between the two spaces cannot happen (different prefixes,
+    same allocator - `se_buddy.changes._all_used_ask_ids`) but a DRAW ask
+    is never *in* `ask_store` at all.
     """
     today = today or date.today().isoformat()
+
+    followup_hit = find_followup_item(root, ask_id)
+    if followup_hit is not None:
+        change_id, item = followup_hit
+        if item.get("answered") is not None:
+            raise AnswerError(f"{ask_id} is already answered ({item['answered']})")
+        mark_followup_item_done(root, change_id, ask_id, today=today)
+        return f"se-buddy/changes/{change_id}.followup.yaml"
+
     ask = get_ask(root, ask_id)
     if ask is None:
         raise AnswerError(f"{ask_id} is not a known ask - see `se-buddy asks`")
@@ -83,13 +97,6 @@ def answer_ask(root: Path, ask_id: str, answer: dict, today: str | None = None) 
             set_sequence(root, named_id, position)
         mark_answered(root, ask_id, act, "sequence: on each named ask", today=today)
         return "sequence: on each named ask"
-
-    if act == "DRAW":
-        raise AnswerError(
-            "DRAW closes by ticking a CHANGE-nnnn.followup.yaml entry, and no "
-            "followup checklist can exist yet - it's created by `write apply`, "
-            "which needs the modelling write path (not built in this phase)."
-        )
 
     if act in ("DECIDE", "SUPPLY"):
         verb = "write memory" if act == "DECIDE" else "write memory or write register"
