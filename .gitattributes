@@ -1,0 +1,8 @@
+# bin/se-buddy is a POSIX shebang script - it must check out with LF line
+# endings on every platform (including Windows) or `#!/usr/bin/env bash`
+# fails to execute. bin/se-buddy.cmd is the Windows counterpart and keeps
+# native CRLF. Both are load-bearing for spike 5 (spec Sec.12).
+/bin/se-buddy text eol=lf
+/bin/se-buddy.cmd text eol=crlf
+
+*.py text eol=lf

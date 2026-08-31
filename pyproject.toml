@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "se-buddy"
+version = "0.1.0"
+description = "Deterministic CLI layer for the SE Buddy systems-engineering collaborator (spec Sec.1.1)"
+requires-python = ">=3.11"
+dependencies = [
+    "capellambse==0.8.1",
+]
+
+# This is the single source of the capellambse pin (spec Sec.7.1: "the two MUST
+# agree"). bin/_bootstrap.py and src/se_buddy/_pin.py both read it from here
+# rather than carrying a second copy of the version string.
+
+[tool.setuptools.packages.find]
+where = ["src"]

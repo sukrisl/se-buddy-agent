@@ -1,0 +1,7 @@
+# Build output - never committed (spec Sec.5.1)
+/vendor/.venv/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/

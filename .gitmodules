@@ -1,0 +1,3 @@
+[submodule "vendor/py-capellambse"]
+	path = vendor/py-capellambse
+	url = https://github.com/DSD-DBS/py-capellambse.git

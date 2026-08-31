@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# se-buddy launcher (POSIX). Not the program itself - it bootstraps or
+# repairs the vendored venv, then execs into it (spec Sec.5.1).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+SYSTEM_PYTHON=""
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    SYSTEM_PYTHON="$candidate"
+    break
+  fi
+done
+if [ -z "$SYSTEM_PYTHON" ]; then
+  echo "se-buddy: no python3 or python found on PATH" >&2
+  exit 1
+fi
+
+VENV_PYTHON="$("$SYSTEM_PYTHON" "$ROOT/bin/_bootstrap.py")"
+
+export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "$VENV_PYTHON" -m se_buddy "$@"
