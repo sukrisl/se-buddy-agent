@@ -1,0 +1,23 @@
+# Non-functional concerns, design rules and priority order (spec Sec.6.2,
+# Sec.5.4). This is the project's baseline viewpoint set - what makes a
+# component boundary defensible rather than arbitrary (spec Sec.2.2 rule 3:
+# "An architecture is chosen, not derived").
+#
+# A viewpoint without both `design_rules` and a `priority` is rejected
+# (spec Sec.9) - a viewpoint that cannot decide a boundary is not a
+# viewpoint. project-init leaves this empty; `se-buddy doctor` reports it
+# as an open SUPPLY ask until at least one is recorded.
+#
+# Example shape (delete before committing a real one):
+#
+# viewpoints:
+#   - name: safety
+#     design_rules:
+#       - "no single point of failure in a safety-critical function chain"
+#     priority: 1
+#   - name: maintainability
+#     design_rules:
+#       - "group functions by the team that owns their lifecycle, not by call frequency"
+#     priority: 2
+
+viewpoints: []

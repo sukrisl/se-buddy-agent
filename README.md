@@ -11,14 +11,14 @@ Three parties do the work. Claude Code is the reasoning layer. The `se-buddy` co
 
 ## Status
 
-Phase 0 (bootstrap) only — see [log/log-0001-se_buddy_agent_spec.md](log/log-0001-se_buddy_agent_spec.md) Sec.11 for the phasing, and [SPEC-COVERAGE.md](SPEC-COVERAGE.md) for what is enforced so far. `se-buddy` has a launcher and a `doctor` command; nothing else in the spec's surface exists yet.
+Phases 0–1 — see [log/log-0001-se_buddy_agent_spec.md](log/log-0001-se_buddy_agent_spec.md) Sec.11 for the phasing, and [SPEC-COVERAGE.md](SPEC-COVERAGE.md) for what is enforced so far. `se-buddy` can bootstrap itself, load a real Capella model, and answer `inspect`/`search`/`show`/`trace`/`asks` against it; `project-init` scaffolds a new project's profile. There is no write path yet, gated or otherwise — that starts in Phase 2.
 
 ## Prerequisites
 
 - Python 3.11+ on `PATH` as `python3` or `python`.
 - Network, the first time `bin/se-buddy` (or `bin\se-buddy.cmd`) runs in a clone, to install the pinned dependencies.
 - `git submodule update --init --recursive`, so `vendor/py-capellambse` is checked out — never `--remote` together with `--recursive` (spec Sec.7.1).
-- **A Rust toolchain (`rustc`, `cargo`), from <https://rustup.rs>.** capellambse 0.8.1 builds a Rust extension, and the bootstrap installs it from the vendored source rather than a prebuilt index wheel (spec Sec.5.1), so building it locally needs a working Rust toolchain. `se-buddy doctor` refuses with a clear message if one isn't found — see [SPEC-COVERAGE.md](SPEC-COVERAGE.md)'s "Known gap" section.
+- **A Rust toolchain (`rustc`, `cargo`).** capellambse 0.8.1 builds a Rust extension, and the bootstrap installs it from the vendored source rather than a prebuilt index wheel (spec Sec.5.1), so building it locally needs one. On Windows, the GNU-target toolchain (`winget install Rustlang.Rust.GNU`, or <https://rustup.rs> with the `x86_64-pc-windows-gnu` target) avoids also needing Visual Studio Build Tools — verified working on this repo. `se-buddy doctor` refuses with a clear message if no toolchain is found.
 
 Then:
 

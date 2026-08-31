@@ -1,0 +1,18 @@
+# se-buddy project profile (spec Sec.5.3, Sec.5.2 - PROFILE layer).
+#
+# Scaffolded empty by project-init. Fill in the four fields below yourself,
+# commit the result, and `se-buddy doctor` / `se-buddy asks` will stop
+# reporting this file as a SUPPLY gap once all four are set.
+#
+# project-init does not fill these in for you and does not ask you to
+# confirm anything here: this file asserts no engineering content by
+# itself, so it isn't gated the way `se-buddy write memory` is (spec
+# Sec.2.3) - but nothing reads it as true until you have actually set it.
+
+model_path:        # path to the .capella file, relative to this file's project root
+aird_path:         # path to the matching .aird file
+capella_version:   # e.g. "7.0.1"
+project_name:      # this project's name, for citations and generated docs
+
+# Filled in later, once the write path (Phase 2+) exists:
+# last_acknowledged_ac:   # the newest AGENT-LOG.md AC-nnnn this project has seen (spec Sec.5.5)

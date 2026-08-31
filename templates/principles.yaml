@@ -1,0 +1,11 @@
+# The project's standing rules (spec Sec.5.2: "principles" and "project
+# rules" are the same thing). May be empty, but must exist and explicitly
+# acknowledge that (spec Sec.5.3) - an empty list here is a real answer
+# ("this project has not recorded any standing rules yet"), not a missing
+# file.
+#
+# Until at least one exists, `arch-review` and `arch-perspective` state on
+# every architectural judgement that the project style is unrecorded
+# (spec C02, Sec.5.3).
+
+principles: []

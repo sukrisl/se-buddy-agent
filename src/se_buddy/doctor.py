@@ -1,10 +1,10 @@
 """`se-buddy doctor` - is this installation sound? (spec Sec.5.3)
 
-Phase 0 scope only: the venv and version checks of Sec.5.1 / Sec.7.1.
-Profile completeness, model reachability, register/record validity and
-AGENT-LOG acknowledgement arrive with the phases that give the agent a
-profile, a model and registers to check against (Sec.5.3's table lists all
-six; the other four are `no-op: reports nothing yet` until then).
+Phase 0 added the venv and version checks of Sec.5.1/Sec.7.1. Phase 1 adds
+profile completeness (Sec.5.3's table: "refuses? no; reports what is
+missing as SUPPLY asks"). Model reachability, register/record validity and
+AGENT-LOG acknowledgement arrive with the phases that give the agent
+registers and records to check against.
 
 By the time this module runs, bin/_bootstrap.py has already run under the
 system interpreter and either found a working venv or rebuilt one - so
@@ -17,8 +17,10 @@ drifted from the pin.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from se_buddy._pin import MIN_PYTHON, read_pin
+from se_buddy.profile import check_completeness
 
 
 def _floor_ok() -> bool:
@@ -60,9 +62,21 @@ def run() -> int:
                 "(this venv was changed outside se-buddy - see spec Sec.7.1)"
             )
 
+    gaps = check_completeness(Path.cwd())
+    if gaps:
+        lines.append(f"[ ]    profile incomplete: {len(gaps)} SUPPLY ask(s) - see `se-buddy asks`")
+    else:
+        lines.append("[ok]   profile complete")
+
     print("\n".join(lines))
     if ok:
         print("se-buddy doctor: installation is sound")
         return 0
     print("se-buddy doctor: refusing - fix the above and re-run", file=sys.stderr)
     return 1
+
+
+def add_parser(subparsers) -> None:
+    subparsers.add_parser("doctor", help="is this installation sound? (spec Sec.5.3)").set_defaults(
+        func=lambda _args: run()
+    )
