@@ -5,6 +5,66 @@ per-change audit trail (surface/breaking/action/why, spec Sec.5.5), see
 [AGENT-LOG.md](AGENT-LOG.md); for what's enforced vs. instructed against
 the spec, see [SPEC-COVERAGE.md](SPEC-COVERAGE.md).
 
+## Unreleased
+
+First real install into a project that isn't this repo. It surfaced two
+problems, both in the install path rather than in anything the spec
+covers, and both are fixed here.
+
+### Fixed
+
+**`doctor` no longer claims more than it checked.** It reported
+"installation is sound" — interpreter, venv, pin and profile all `[ok]` —
+on an install where Claude Code had loaded none of the eighteen skills.
+Every line of that report was true; none of it answered the question being
+asked. `doctor` now prints three sections (`install`, `runtime`,
+`profile`), and its closing line distinguishes "the deterministic layer is
+sound" from "the plugin is loaded".
+
+The new `install` section (`src/se_buddy/install.py`) checks the manifest,
+the on-disk layout, and — the one that actually bit — whether the working
+directory *is* the project root, since a project-scope skills-directory
+plugin loads only from the session's primary working directory and does
+not walk up. It also checks `hooks/hooks.json` is present and parseable,
+because the `PreToolUse` write guards are one of the two write-protection
+layers and they exist only while the plugin is loaded.
+
+**A plugin load can now be confirmed.** `/se-buddy:doctor` (new skill)
+runs `se-buddy doctor` and reports it. Its real output is the fact that it
+ran at all: a slash command cannot resolve unless the plugin carrying it
+loaded, so this is proof by construction rather than a check. `doctor`
+itself can report a load positively where the plugin's `bin/` is on
+`PATH`, and reports an explicit unknown otherwise — never a failure, since
+a human running the launcher from a terminal is the expected case.
+
+**Rust is no longer a prerequisite on any platform that has a wheel.**
+`bin/_bootstrap.py` installed capellambse by building
+`vendor/py-capellambse` from source unconditionally, which needs `rustc`
+and `cargo`, and which for a systems engineer rather than a developer is
+where the install tended to stop. It now installs the pinned version from
+a prebuilt wheel (`--only-binary`) and falls back to the vendored source
+only where no wheel matches — which is also the only path that still
+demands Rust, and the message now says so and why. Verified by rebuilding
+the venv from scratch with Rust removed from `PATH`.
+
+The trade, stated plainly: the submodule pinned an exact commit and a
+version pin does not. `==` still fixes the version and `doctor` still
+refuses on drift (spec Sec.7.1), but the artefact now comes from an index
+rather than a SHA this repository records. Hash-pinning the wheel in
+`lockfile` would recover that and is not done here.
+
+### Changed
+
+README: Install is now six numbered steps, with the two that decide
+whether anything works — start at the project root, accept workspace trust
+— called out rather than implied, plus a symptom/cause/fix Troubleshooting
+table. Examples use `se-buddy` as a bare command, which is what it is
+inside Claude Code once the plugin's `bin/` reaches `PATH`; the explicit
+local path is given as the outside-Claude-Code form rather than the only
+form. Prerequisites no longer lists Rust unconditionally.
+
+193 tests pass (was 179).
+
 ## v0.1.0 — 2026-08-31
 
 First release. Phases 0–3 of the spec's four-phase plan

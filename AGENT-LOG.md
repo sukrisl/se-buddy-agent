@@ -4,6 +4,92 @@ Format and purpose: spec Sec.5.5. Newest first, append-only, never rewritten.
 
 ---
 
+## AC-0007 — 2026-09-01 — Install path: make "installed" verifiable, and drop the Rust prerequisite
+
+```
+surface   cli (doctor output), skill (new: doctor), bootstrap, test
+breaking  no
+action    none - `se-buddy doctor`'s output changed shape (three sections)
+          but no verb, flag or schema did. Projects already installed pick
+          this up on the next `git submodule update --remote`
+why       the first install into a project that isn't this repo (Phase 4)
+          failed in a way nothing in the agent could see or report, and
+          failed again on a prerequisite that turned out to be avoidable
+```
+
+Two defects, both in the install path rather than in anything the spec
+governs, both found by actually doing the Phase 4 install instead of
+reasoning about it.
+
+**`doctor` answered a different question than the one being asked, and
+said "installation is sound" while doing it.** On the real install it
+reported interpreter, venv, pin and profile all `[ok]`, exit 0 — while
+Claude Code had loaded none of the eighteen skills. Every line was true.
+None of them touched the layer the engineer had installed the thing for.
+
+The cause is that a project-scope skills-directory plugin loads only from
+the session's *primary* working directory and does not walk up to the
+repository root the way plain skills do, and only once the workspace-trust
+prompt is accepted. Neither condition was documented, and neither was
+checked. `src/se_buddy/install.py` now checks what is checkable from a
+subprocess — manifest, layout, working directory, `hooks/hooks.json`
+presence — and `doctor` prints it as an `install` section ahead of
+`runtime` and `profile`.
+
+What it deliberately does **not** do is claim the plugin loaded. Nothing a
+subprocess can read establishes that. `doctor` reports it positively only
+where the plugin's `bin/` is on `PATH` (which happens only when Claude
+Code has it enabled), reports an explicit unknown otherwise — never a
+failure, since a human running the launcher from a terminal is the normal
+case — and its closing line now says "the deterministic layer is sound"
+rather than "installation is sound" when that is all it established.
+
+The other half is `/se-buddy:doctor` (new skill). It is proof by
+construction rather than a check: a slash command cannot resolve unless
+the plugin carrying it loaded, so a skill that runs *is* the evidence.
+That is the last step of Install.
+
+Worth recording as a safety consequence, not only a usability one: the
+`PreToolUse` write guards are one of the two independent write-protection
+layers (spec Sec.10.1), and they exist only while the plugin is loaded. An
+install that silently never loaded had the TTY gate and nothing else, and
+nothing said so.
+
+**Rust was a prerequisite because of a choice here, not because of
+capellambse.** `bin/_bootstrap.py` installed capellambse by building
+`vendor/py-capellambse` from source unconditionally, which needs `rustc`
+and `cargo`. capellambse 0.8.1 publishes eight `cp311-abi3` wheels —
+macOS arm64/x86-64, manylinux and musllinux aarch64/x86-64, win32/amd64 —
+so on every platform this realistically targets, nothing needed compiling.
+For a systems engineer rather than a developer, installing a Rust
+toolchain is where the install tended to stop.
+
+The bootstrap now installs the pinned version from a wheel
+(`--only-binary :all:`) and falls back to the vendored source only where
+no wheel matches. That fallback is the only path that still demands Rust,
+and its message now names the reason it was reached. Wheel-attempt
+failures are diagnosed separately from lockfile-install failures, because
+"could not find a version that satisfies" means *offline* in one context
+and *no wheel for this platform* in the other, and conflating them sends
+the engineer after the wrong problem.
+
+The trade, recorded because it is real: the submodule pinned an exact
+commit and a version pin does not. `==` still fixes the version and
+`doctor` still refuses on drift from it (Sec.7.1), but the artefact now
+comes from an index rather than a SHA this repository records.
+Hash-pinning the wheel in `lockfile` would recover that; it is not done.
+
+**Verified live, not by inspection.** The venv was deleted and rebuilt
+from scratch with `rustc`/`cargo` removed from `PATH`: it installed the
+wheel and reached `capellambse 0.8.1 matches the pin` in 49 seconds. The
+no-wheel fallback was exercised separately against a version that has none
+and produced the Rust message with the correct reason, not the offline
+one. 193 tests pass (was 179); the 14 new ones cover the install checks,
+including that a missing `bin/` on `PATH` is reported as unknown rather
+than as a failure.
+
+---
+
 ## AC-0006 — 2026-08-31 — Pre-production hardening: full code review, 15 findings fixed
 
 ```
