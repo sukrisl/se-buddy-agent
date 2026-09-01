@@ -61,7 +61,7 @@ What works today, concretely:
   implementation (not just the latest diff) was reviewed for defects before
   this was pointed at a real project; 15 confirmed findings were fixed, plus
   two more found while writing their regression tests (see AGENT-LOG.md's
-  `AC-0006`). 246 tests pass.
+  `AC-0006`). 258 tests pass.
 
 **Deliberately not built yet**, each a scoped decision recorded in
 SPEC-COVERAGE.md rather than an oversight:
@@ -239,6 +239,7 @@ here is hand-transcribed into a template.
 | …and none of the above | Manifest or layout | `se-buddy doctor` — its `install:` section names the cause |
 | `se-buddy: command not found` inside Claude Code | Plugin not loaded (its `bin/` never reached `PATH`) | As above; meanwhile use the explicit path |
 | Launcher asks for a Rust toolchain | No prebuilt wheel matched your platform | Install Rust per Prerequisites — the message names the reason |
+| A `.capella` edit is not blocked, on Windows | The guards are POSIX `sh`; with no Git Bash, Claude Code runs hooks under PowerShell, where they don't parse | Install Git Bash. `doctor` cannot detect this — it checks the interpreter and the guard, not the shell |
 | `doctor` says "installation is sound" but no skills work | You ran the CLI, which cannot see the reasoning layer | That wording is gone; upgrade, then use `/se-buddy:doctor` |
 
 `se-buddy doctor` deliberately does **not** claim the install is complete
@@ -325,7 +326,7 @@ clear message, not silently succeed.
 PYTHONPATH=src vendor/.venv/Scripts/python.exe -m unittest discover -s tests
 ```
 
-246 tests, no network required once the venv is built.
+258 tests, no network required once the venv is built.
 
 ## Changelog
 

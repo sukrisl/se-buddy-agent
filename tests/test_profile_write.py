@@ -140,6 +140,42 @@ class TestCompletenessOverContent(unittest.TestCase):
             gaps = [g for g in check_completeness(root) if g.object == "se-buddy/domain.md"]
             self.assertTrue(gaps)
 
+    def test_at_most_one_gap_per_object(self):
+        """`ask_store` keys an ask on `object` alone, so two gaps sharing one
+        object become two asks for one condition that can never afterwards be
+        updated or resolved apart. Caught against the real project, which grew
+        ASK-0009 and ASK-0010 for a single unfinished `domain.md`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pdir = profile_dir(root)
+            pdir.mkdir(parents=True)
+            # The shipped template trips several findings at once - a missing
+            # heading, the preamble, and a fistful of placeholders.
+            (pdir / "domain.md").write_text(
+                Path("templates/domains/generic.md").read_text(encoding="utf-8"), encoding="utf-8"
+            )
+
+            objects = [g.object for g in check_completeness(root)]
+
+            self.assertEqual(len(objects), len(set(objects)), objects)
+
+    def test_the_domain_gap_states_an_invariant_and_carries_todays_evidence(self):
+        # `done_when` is persisted once and keeps its text, so a count in it
+        # would freeze. The varying part rides on `detail`, which is not.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pdir = profile_dir(root)
+            pdir.mkdir(parents=True)
+            (pdir / "domain.md").write_text(
+                complete_domain_pack() + "\n- <leftover>\n", encoding="utf-8"
+            )
+
+            gap = next(g for g in check_completeness(root) if g.object == "se-buddy/domain.md")
+
+            self.assertNotIn("1 unreplaced", gap.done_when)
+            self.assertIn("Sec.5.4", gap.done_when)
+            self.assertTrue(any("<leftover>" in d for d in gap.detail))
+
     def test_domain_gaps_are_supply_asks_like_every_other_gap(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

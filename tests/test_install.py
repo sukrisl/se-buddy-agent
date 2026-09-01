@@ -1,10 +1,21 @@
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from se_buddy.install import PLUGIN_LOADED, check_install, describe_layout
+from se_buddy.install import (
+    PLUGIN_LOADED,
+    _hook_commands,
+    check_hooks,
+    check_install,
+    describe_layout,
+)
+
+#: The repository's own `hooks/`, copied into each fixture rather than stubbed.
+#: `check_hooks` runs a guard for real, so a stub would test the stub.
+REAL_HOOKS = Path(__file__).resolve().parents[1] / "hooks"
 
 
 def _plugin_root(base: Path, *, name: str = "se-buddy", manifest: object = ...) -> Path:
@@ -17,8 +28,7 @@ def _plugin_root(base: Path, *, name: str = "se-buddy", manifest: object = ...) 
         (root / ".claude-plugin" / "plugin.json").write_text(
             json.dumps(manifest), encoding="utf-8"
         )
-    (root / "hooks").mkdir(parents=True, exist_ok=True)
-    (root / "hooks" / "hooks.json").write_text(json.dumps({"hooks": {}}), encoding="utf-8")
+    shutil.copytree(REAL_HOOKS, root / "hooks", dirs_exist_ok=True)
     return root
 
 
@@ -149,6 +159,13 @@ class TestCheckInstall(unittest.TestCase):
             self.assertEqual(finding.status, "unknown")
             self.assertIn("/se-buddy:doctor", finding.message)
 
+    def test_the_write_guard_is_run_not_merely_parsed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = _installed(base)
+            findings = check_install(root, base, path_env="", home=base / "elsewhere")
+            self.assertTrue(any("write guards run under" in f.message for f in findings))
+
     def test_path_entries_that_cannot_be_resolved_are_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -159,6 +176,96 @@ class TestCheckInstall(unittest.TestCase):
             findings = check_install(root, base, path_env=path_env, home=base / "elsewhere")
 
             self.assertEqual(_by_key(findings, PLUGIN_LOADED).status, "ok")
+
+
+class TestCheckHooks(unittest.TestCase):
+    """The layer that used to be checkable only by parsing its own config.
+
+    Every one of these passed as `[ok]` under the old existence-and-JSON
+    check, on a platform where the guards did not run at all.
+    """
+
+    def test_the_shipped_config_runs_a_guard_that_blocks(self):
+        findings = check_hooks(Path(__file__).resolve().parents[1])
+        self.assertEqual([f.message for f in findings if f.failed], [])
+        self.assertTrue(any("block a .capella edit" in f.message for f in findings))
+
+    def test_no_interpreter_on_path_is_a_failure_not_an_ok(self):
+        # The real bug, in the form it took on macOS and modern Debian: the
+        # config is perfectly valid JSON naming a `python` that isn't there,
+        # and Claude Code lets the tool call proceed when a hook's
+        # interpreter is missing.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _plugin_root(Path(tmp))
+            (root / "hooks" / "hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "PreToolUse": [
+                                {
+                                    "matcher": "Edit",
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "nosuchpython hooks/block_capella_write.py",
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            findings = check_hooks(root)
+
+            self.assertTrue(findings[0].failed)
+            self.assertIn("silently absent", findings[0].message)
+
+    def test_a_config_naming_a_script_that_does_not_exist_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _plugin_root(Path(tmp))
+            (root / "hooks" / "block_capella_write.py").unlink()
+            findings = check_hooks(root)
+            self.assertTrue(any(f.failed and "does not exist" in f.message for f in findings))
+
+    def test_a_guard_that_stops_blocking_is_caught(self):
+        # A guard that exits 0 on a .capella edit is worse than a missing
+        # one: the config, the script and the interpreter all look right.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _plugin_root(Path(tmp))
+            (root / "hooks" / "block_capella_write.py").write_text(
+                "import sys\nsys.exit(0)\n", encoding="utf-8"
+            )
+            findings = check_hooks(root)
+            self.assertTrue(any(f.failed and "did not block" in f.message for f in findings))
+
+    def test_a_config_declaring_no_commands_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _plugin_root(Path(tmp))
+            (root / "hooks" / "hooks.json").write_text(
+                json.dumps({"hooks": {}}), encoding="utf-8"
+            )
+            findings = check_hooks(root)
+            self.assertTrue(any(f.failed and "no hook commands" in f.message for f in findings))
+
+    def test_every_shipped_hook_command_prefers_python3_and_falls_back(self):
+        # The fix itself: bare `python` is what broke on macOS/Linux, so both
+        # the presence of the fallback and its order are load-bearing.
+        config = json.loads((REAL_HOOKS / "hooks.json").read_text(encoding="utf-8"))
+        commands = _hook_commands(config)
+
+        self.assertEqual(len(commands), 2)
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIn("command -v python3", command)
+                self.assertIn("exec python3", command)
+                self.assertIn("exec python ", command)
+                self.assertLess(command.index("exec python3"), command.index("exec python "))
+                # `exec`, not a plain call: the shell must be replaced so the
+                # guard's exit 2 is what Claude Code sees as the block.
+                self.assertNotIn("; python ", command)
 
 
 if __name__ == "__main__":

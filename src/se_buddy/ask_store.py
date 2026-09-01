@@ -62,10 +62,18 @@ def sync_profile_gaps(root: Path, gaps: list[ProfileGap], today: str | None = No
         if ask.get("answered") is None and ask["object"] not in current_objects:
             ask["answered"] = {"date": today, "act": "auto-resolved", "where": "condition cleared"}
 
+    # One open ask per object, and `open_objects` grows as we go. It used to
+    # be computed once before the loop, so two gaps sharing an object (which
+    # `check_completeness` began producing for `domain.md`) allocated two
+    # asks for the same condition - neither of which could then be updated or
+    # resolved independently, since every later run matched the first. The
+    # caller is expected to emit one gap per object; this makes that
+    # invariant hold even when it doesn't.
     open_objects = {a["object"] for a in asks.values() if a.get("answered") is None}
     for gap in gaps:
         if gap.object in open_objects:
             continue
+        open_objects.add(gap.object)
         ask_id = next_id("ASK", asks.keys())
         asks[ask_id] = {
             "act": gap.act,

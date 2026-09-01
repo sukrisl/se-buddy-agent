@@ -92,6 +92,51 @@ matched the first `version="..."` in the file, which is always the XML
 declaration's `version="1.0"`. Both are anchored now, and the `.afm` path
 prefers the Capella core viewpoint where a project references several.
 
+**The write guards never ran on macOS or modern Linux, and the check that
+was supposed to notice could not have.** `hooks.json` invoked both guards
+as bare `python`. That binary does not exist on macOS 12.3+ or current
+Debian/Ubuntu - only `python3` does - and Claude Code treats a hook whose
+interpreter is missing as a *non-blocking* error, so the tool call
+proceeds. On those platforms the second of the two write-protection layers
+this project advertises simply was not there, and nothing said so:
+`hooks.json` was present, valid JSON, and pointed at scripts that existed,
+which is all `doctor` was checking. `bin/se-buddy` and `bin/_bootstrap.py`
+have always tried `python3` before `python`; the hook config was the one
+place that did not.
+
+Both commands now prefer `python3` with a `python` fallback, in POSIX `sh`
+(which covers `sh` and Git Bash), using `exec` so the guard's exit 2
+reaches Claude Code as the block rather than the shell's own status.
+
+The fix that matters more is `install.check_hooks`: `doctor` now resolves
+the interpreter the config names and *runs* a guard against a payload it
+must refuse, asserting exit 2. This is the same lesson as AC-0007's, in a
+second place - the old check tested a proxy (does the config parse?) that
+was true in exactly the case where the thing itself was broken. Its
+remaining limit is stated in the function rather than left implied: it
+does not reproduce Claude Code's shell selection, so a Windows install
+with no Git Bash, where the commands fall through to PowerShell and would
+not parse, passes this check. That case is in the README.
+
+**Two asks for one unfinished file - AC-0008's own domain check, caught by
+running it against the real project.** `ask_store.sync_profile_gaps` keys
+an open ask on `object` alone, and computed its `open_objects` set once
+before the loop. The new `domain.md` content check emitted one gap per
+finding, every one of them carrying the object `se-buddy/domain.md`, so
+model-iot_platform grew `ASK-0009` and `ASK-0010` for a single file.
+Neither could be updated or resolved independently afterwards, since every
+later run matched only the first - and the placeholder *count* had been
+frozen into `done_when` at whatever it was the first time, an ask being
+written once and never rewritten.
+
+Fixed in three places, because the invariant deserved to be defended
+rather than merely obeyed: `check_completeness` emits one gap per object,
+whose `done_when` states the invariant requirement; the run-to-run
+specifics move to a new `ProfileGap.detail` that `sync_profile_gaps` does
+not persist and `doctor` prints; and `sync_profile_gaps` grows
+`open_objects` inside its loop so a future caller that emits duplicate
+objects gets one ask rather than silently reproducing this.
+
 **Adding an ungated verb broke the write-guard hook, which is worth
 recording as the cost of that carve-out rather than as a footnote.**
 `block_write_verbs.py` matched `write-(\w+)`, and `\w` stops at a hyphen,
@@ -104,7 +149,7 @@ the CLI itself does not gate it. An unknown `write-x-y` still fails
 closed. Caught here rather than in a real session only because the hook's
 own tests were extended alongside the verb.
 
-246 tests pass (was 193). One existing test changed rather than broke:
+258 tests pass (was 193). One existing test changed rather than broke:
 `test_profile`'s complete-profile case wrote `# Domain\n` as its domain
 pack, which is no longer one - it now uses a `tests.complete_domain_pack()`
 fixture built from `REQUIRED_SECTIONS`, so adding a required section keeps

@@ -17,6 +17,39 @@ GAP_B = ProfileGap(object="se-buddy/domain.md", done_when="it exists")
 
 
 class TestSyncProfileGaps(unittest.TestCase):
+    def test_two_gaps_sharing_an_object_allocate_one_ask(self):
+        """One open ask per object, even when the caller breaks that rule.
+
+        `open_objects` was computed once before the loop, so duplicate-object
+        gaps each got their own id - and every later run then matched only
+        the first, leaving the rest permanently unupdatable. Seen for real:
+        one unfinished `domain.md` produced ASK-0009 and ASK-0010.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            duplicate = ProfileGap(object=GAP_B.object, done_when="a second finding")
+
+            asks = sync_profile_gaps(Path(tmp), [GAP_B, duplicate], today="2026-08-31")
+
+            self.assertEqual(len(asks), 1)
+
+    def test_a_duplicate_object_does_not_accumulate_across_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            duplicate = ProfileGap(object=GAP_B.object, done_when="a second finding")
+            sync_profile_gaps(root, [GAP_B, duplicate], today="2026-08-31")
+            asks = sync_profile_gaps(root, [GAP_B, duplicate], today="2026-09-01")
+            self.assertEqual(len(asks), 1)
+
+    def test_detail_is_not_persisted_onto_the_ask(self):
+        # An ask is written once and keeps its text, so anything that varies
+        # run to run must stay off it or it silently goes stale.
+        with tempfile.TemporaryDirectory() as tmp:
+            gap = ProfileGap(
+                object=GAP_B.object, done_when="it is complete", detail=("3 placeholders",)
+            )
+            asks = sync_profile_gaps(Path(tmp), [gap], today="2026-08-31")
+            self.assertNotIn("detail", next(iter(asks.values())))
+
     def test_first_sync_allocates_stable_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

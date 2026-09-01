@@ -42,11 +42,27 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
 #: `Finding.key` for the plugin-load line - the one finding `doctor`'s summary
 #: has to single out, and the one whose wording is most likely to be reworded.
 PLUGIN_LOADED = "plugin-loaded"
+
+#: Interpreter names a hook command may invoke, recognised in the order the
+#: command itself lists them. Read out of `hooks.json` rather than hardcoded
+#: as a preference here, so this check cannot drift from what the config
+#: actually does.
+_INTERPRETERS = re.compile(r"\b(python3|python)\b")
+
+#: The `.py` guards a hook command runs, as written in `hooks.json`.
+_HOOK_SCRIPT = re.compile(r"hooks/(\w+\.py)")
+
+#: A payload the Edit/Write guard MUST block. If feeding this to the guard
+#: does not produce exit 2, the layer is not working, whatever the config says.
+_BLOCKED_PAYLOAD = json.dumps({"tool_input": {"file_path": "model.capella"}})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -133,6 +149,126 @@ def _bin_is_on_path(root: Path, path_env: str) -> bool:
     return False
 
 
+def _hook_commands(hooks: dict) -> list[str]:
+    """Every `command` string in a `hooks.json`, whatever events it declares."""
+    commands: list[str] = []
+    for entries in (hooks.get("hooks") or {}).values():
+        for entry in entries or []:
+            for hook in (entry or {}).get("hooks") or []:
+                command = (hook or {}).get("command")
+                if isinstance(command, str):
+                    commands.append(command)
+    return commands
+
+
+def _resolve_interpreter(commands: list[str]) -> tuple[str | None, list[str]]:
+    """The first interpreter named by the hook commands that is on PATH.
+
+    Returns (resolved name or None, every name the commands named). Order is
+    taken from the command text, so `python3`-then-`python` here follows the
+    config rather than a second opinion held in this file.
+    """
+    named: list[str] = []
+    for command in commands:
+        for name in _INTERPRETERS.findall(command):
+            if name not in named:
+                named.append(name)
+    for name in named:
+        if shutil.which(name):
+            return name, named
+    return None, named
+
+
+def check_hooks(root: Path) -> list[Finding]:
+    """Whether the write guards can actually run - not merely whether the config parses.
+
+    The distinction is the whole point of this function. `hooks.json` parsed
+    cleanly on every platform where the guards were silently dead: they
+    invoked bare `python`, which does not exist on macOS 12.3+ or modern
+    Debian/Ubuntu, and Claude Code treats a hook whose interpreter is missing
+    as a non-blocking error - so the tool call proceeds and the layer is
+    simply gone. Checking the config told you nothing about that.
+
+    So this resolves the interpreter the config names and *runs* a guard
+    against a payload it must refuse, asserting exit 2.
+
+    What it does not do, stated rather than implied: it does not reproduce
+    Claude Code's shell selection. The commands are POSIX `sh`, which covers
+    `sh` and Git Bash; a Windows install with no Git Bash falls back to
+    PowerShell, where they would not parse. This check would still pass
+    there, because the interpreter and the guard are both fine - it is the
+    shell that is not. That case is called out in the README rather than
+    detected here.
+    """
+    hooks_path = root / "hooks" / "hooks.json"
+    if not hooks_path.exists():
+        return [
+            Finding(
+                "fail",
+                f"{hooks_path} is missing - the PreToolUse write guards (spec Sec.10.1) "
+                "cannot load",
+            )
+        ]
+
+    try:
+        config = json.loads(hooks_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [Finding("fail", f"{hooks_path} could not be read as JSON: {exc}")]
+
+    commands = _hook_commands(config)
+    if not commands:
+        return [Finding("fail", f"{hooks_path} declares no hook commands")]
+
+    findings: list[Finding] = []
+
+    for name in sorted({s for c in commands for s in _HOOK_SCRIPT.findall(c)}):
+        if not (root / "hooks" / name).is_file():
+            findings.append(
+                Finding("fail", f"hooks.json runs hooks/{name}, which does not exist")
+            )
+    if findings:
+        return findings
+
+    interpreter, named = _resolve_interpreter(commands)
+    if interpreter is None:
+        return [
+            Finding(
+                "fail",
+                f"none of the interpreters hooks.json names ({', '.join(named) or 'none'}) "
+                "is on PATH, so the write guards would not run - and Claude Code lets a "
+                "tool call proceed when a hook's interpreter is missing, so the layer "
+                "would be silently absent. Install Python and re-run",
+            )
+        ]
+
+    guard = root / "hooks" / "block_capella_write.py"
+    try:
+        proc = subprocess.run(
+            [interpreter, str(guard)],
+            input=_BLOCKED_PAYLOAD,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [Finding("fail", f"could not run the write guard under {interpreter}: {exc}")]
+
+    if proc.returncode != 2:
+        return [
+            Finding(
+                "fail",
+                f"the write guard ran under {interpreter} but did not block a .capella "
+                f"edit (exit {proc.returncode}, expected 2) - the second write-protection "
+                "layer is not working",
+            )
+        ]
+
+    findings.append(
+        Finding("ok", f"write guards run under {interpreter} and block a .capella edit")
+    )
+    return findings
+
+
 def check_install(
     root: Path,
     cwd: Path,
@@ -205,28 +341,7 @@ def check_install(
                 Finding("ok", f"working directory is the project root {project_root}")
             )
 
-    hooks = root / "hooks" / "hooks.json"
-    if not hooks.exists():
-        findings.append(
-            Finding(
-                "fail",
-                f"{hooks} is missing - the PreToolUse write guards (spec Sec.10.1) "
-                "cannot load",
-            )
-        )
-    else:
-        try:
-            json.loads(hooks.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            findings.append(Finding("fail", f"{hooks} could not be read as JSON: {exc}"))
-        else:
-            findings.append(
-                Finding(
-                    "ok",
-                    "write-guard hooks are present - they fire only while the plugin is "
-                    "loaded, so read them against the plugin-load line below",
-                )
-            )
+    findings.extend(check_hooks(root))
 
     loaded_name = f"{name or layout.dir_name}@skills-dir"
     if _bin_is_on_path(root, path_env):

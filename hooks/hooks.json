@@ -1,4 +1,23 @@
 {
+  "_comment": [
+    "Write guards (spec Sec.10.1). Both entries prefer `python3` and fall back",
+    "to `python`, for the reason bin/se-buddy and bin/_bootstrap.py already do:",
+    "macOS 12.3+ and modern Debian/Ubuntu ship no `python` at all, only",
+    "`python3`. These two commands used to invoke bare `python`, and Claude",
+    "Code treats a hook whose interpreter cannot be found as a NON-BLOCKING",
+    "error - the tool call proceeds. So on those platforms both guards silently",
+    "did not run, and the second of the two write-protection layers this",
+    "project advertises did not exist. `se-buddy doctor` now executes a guard",
+    "rather than only parsing this file, so that can never be silent again.",
+    "",
+    "POSIX sh, deliberately: hook commands run under `sh` on macOS/Linux and",
+    "Git Bash on Windows, and no bashism is needed here. `exec` matters - it",
+    "replaces the shell so the script's exit 2 reaches Claude Code as the",
+    "block, rather than the shell's own exit status.",
+    "",
+    "${CLAUDE_PLUGIN_ROOT} is expanded by Claude Code before the shell sees it;",
+    "the quotes are what survive a plugin root containing spaces."
+  ],
   "hooks": {
     "PreToolUse": [
       {
@@ -6,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/block_capella_write.py\""
+            "command": "if command -v python3 >/dev/null 2>&1; then exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/block_capella_write.py\"; else exec python \"${CLAUDE_PLUGIN_ROOT}/hooks/block_capella_write.py\"; fi"
           }
         ]
       },
@@ -15,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/block_write_verbs.py\""
+            "command": "if command -v python3 >/dev/null 2>&1; then exec python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/block_write_verbs.py\"; else exec python \"${CLAUDE_PLUGIN_ROOT}/hooks/block_write_verbs.py\"; fi"
           }
         ]
       }

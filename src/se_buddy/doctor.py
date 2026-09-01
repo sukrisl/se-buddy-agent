@@ -79,14 +79,23 @@ def _runtime_findings() -> list[Finding]:
 
 def _profile_findings(root: Path) -> list[Finding]:
     gaps = check_completeness(root)
-    if gaps:
-        return [
-            Finding(
-                "unknown",
-                f"profile incomplete: {len(gaps)} SUPPLY ask(s) - see `se-buddy asks`",
-            )
-        ]
-    return [Finding("ok", "profile complete")]
+    if not gaps:
+        return [Finding("ok", "profile complete")]
+
+    findings = [
+        Finding(
+            "unknown",
+            f"profile incomplete: {len(gaps)} SUPPLY ask(s) - see `se-buddy asks`",
+        )
+    ]
+    # A gap's `detail` is the live evidence behind it, which the persisted ask
+    # deliberately does not carry (see `ProfileGap.detail`). `doctor` is the
+    # right place for it: it is recomputed every run, and "which placeholder
+    # is still there" is the part that tells you what to actually go and fix.
+    for gap in gaps:
+        for line in gap.detail:
+            findings.append(Finding("unknown", f"  {gap.object}: {line}"))
+    return findings
 
 
 def run() -> int:

@@ -42,6 +42,14 @@ class ProfileGap:
     act: str = "SUPPLY"
     blocks: str = "confident architectural judgements (spec Sec.5.3)"
     default: str = "none - architectural judgements report the project style as unrecorded until this is supplied"
+    #: Live specifics behind this gap, for `doctor` to print. Deliberately
+    #: NOT persisted by `ask_store.sync_profile_gaps`: an ask is written once
+    #: and keeps its text, so anything that varies run to run (a count, a
+    #: list of the placeholders currently present) would be frozen at
+    #: whatever it happened to be the first time and quietly go stale.
+    #: `done_when` states the invariant requirement; this states today's
+    #: evidence.
+    detail: tuple[str, ...] = ()
 
 
 def profile_dir(root: Path) -> Path:
@@ -92,12 +100,23 @@ def check_completeness(root: Path) -> list[ProfileGap]:
         # sections are binding as project requirements once recorded, so an
         # unreplaced skeleton is not an empty pack - it is example prose
         # being read as something the project asserts.
+        #
+        # One gap, not one per finding: `ask_store.sync_profile_gaps` keys an
+        # ask on `object` alone, so N gaps sharing `se-buddy/domain.md` became
+        # N asks that could then never be updated or resolved independently.
+        # Caught against the real project, which grew ASK-0009 and ASK-0010
+        # for one unfinished file. The findings ride along as `detail`.
         pack = domain_pack.check(domain_md.read_text(encoding="utf-8"))
-        for gap in pack.structural + pack.skeleton_signals:
+        findings = pack.structural + pack.skeleton_signals
+        if findings:
             gaps.append(
                 ProfileGap(
                     object="se-buddy/domain.md",
-                    done_when=gap,
+                    done_when=(
+                        "every spec Sec.5.4 section is present and filled in, with no "
+                        "template placeholders or instructions left"
+                    ),
+                    detail=tuple(findings),
                 )
             )
 

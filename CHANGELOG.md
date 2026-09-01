@@ -55,9 +55,9 @@ The new `install` section (`src/se_buddy/install.py`) checks the manifest,
 the on-disk layout, and — the one that actually bit — whether the working
 directory *is* the project root, since a project-scope skills-directory
 plugin loads only from the session's primary working directory and does
-not walk up. It also checks `hooks/hooks.json` is present and parseable,
-because the `PreToolUse` write guards are one of the two write-protection
-layers and they exist only while the plugin is loaded.
+not walk up. It also checks the `PreToolUse` write guards actually run —
+see below — because they are one of the two write-protection layers and
+they exist only while the plugin is loaded.
 
 **A plugin load can now be confirmed.** `/se-buddy:doctor` (new skill)
 runs `se-buddy doctor` and reports it. Its real output is the fact that it
@@ -93,6 +93,36 @@ structural gaps (a section missing or empty) are facts and `write-domain`
 refuses on them; placeholder detection is a heuristic and only ever
 reports — as `SUPPLY` asks, and in the write gate where a human reads it.
 
+**The write guards did not run at all on macOS or modern Linux.**
+`hooks/hooks.json` invoked both `PreToolUse` guards as bare `python`, which
+does not exist on macOS 12.3+ or current Debian/Ubuntu — only `python3`
+does. Claude Code treats a hook whose interpreter is missing as a
+*non-blocking* error: the tool call proceeds. So on those platforms the
+second of the two write-protection layers this project advertises was
+silently absent, while `hooks.json` parsed perfectly. Both commands now
+prefer `python3` and fall back to `python`, using `exec` so the guard's
+exit 2 still reaches Claude Code as the block.
+
+The durable half: **`doctor` now runs a guard instead of parsing its
+config.** It resolves the interpreter the config names, feeds the guard a
+payload it must refuse, and asserts exit 2. Checking that `hooks.json`
+existed and was valid JSON — all the old check did — was true on every
+platform where the layer was dead. It does not simulate Claude Code's
+shell selection, so a Windows install without Git Bash (where the commands
+fall to PowerShell and would not parse) is called out in the README rather
+than detected.
+
+**Two asks for one unfinished file.** `ask_store` keys an open ask on
+`object` alone, and the new `domain.md` content check emitted one gap per
+finding — all sharing that object. The real project grew `ASK-0009` and
+`ASK-0010` for a single file, neither afterwards updatable or resolvable
+apart, with a placeholder *count* frozen into `done_when` the first time it
+was written. `check_completeness` now emits one gap per object whose
+`done_when` states the invariant requirement, with the live findings on a
+new `ProfileGap.detail` that is deliberately not persisted and is printed
+by `doctor` instead. `sync_profile_gaps` also grows `open_objects` as it
+goes, so a future caller cannot reintroduce this silently.
+
 **The write-guard hook would have blocked `write-claude-md`.** Its verb
 pattern was `write-(\w+)`, which stops at a hyphen, so it read
 `write-claude-md` as the verb `write-claude` — not in its exemption set,
@@ -125,7 +155,7 @@ by design" - was a skill-level decision, not a spec constraint: Sec.5.4
 requires the pack to exist and be project-supplied, and never says a
 human must type it into an editor.
 
-246 tests pass (was 179).
+258 tests pass (was 179).
 
 ## v0.1.0 — 2026-08-31
 
