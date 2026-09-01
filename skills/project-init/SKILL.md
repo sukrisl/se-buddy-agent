@@ -18,9 +18,10 @@ missing one of the four required files.
 
 ## Inputs
 
-A domain pack choice (`se-buddy scaffold --list-domains` names what's
-shipped in `templates/domains/`, e.g. `generic`, `aerospace-arp4754a`), and
-the model paths for `profile.yaml`.
+A domain pack choice (`se_buddy.scaffold.available_domain_packs()` names
+what's shipped in `templates/domains/`, e.g. `generic`,
+`aerospace-arp4754a` - not a CLI verb, see "Commands used" below), and the
+model paths for `profile.yaml`.
 
 ## Context required
 

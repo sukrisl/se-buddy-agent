@@ -1,0 +1,95 @@
+# Changelog
+
+Human-facing summary of what shipped, release by release. For the
+per-change audit trail (surface/breaking/action/why, spec Sec.5.5), see
+[AGENT-LOG.md](AGENT-LOG.md); for what's enforced vs. instructed against
+the spec, see [SPEC-COVERAGE.md](SPEC-COVERAGE.md).
+
+## v0.1.0 — 2026-08-31
+
+First release. Phases 0–3 of the spec's four-phase plan
+([log/log-0001-se_buddy_agent_spec.md](log/log-0001-se_buddy_agent_spec.md)
+Sec.11). Phase 4 (a second project installing this fresh) is the one
+remaining gate before this is proven outside its own development.
+
+### Added
+
+**Bootstrap.** `bin/se-buddy` / `bin/se-buddy.cmd` build and repair their
+own virtualenv on every run, from the vendored `capellambse` submodule and
+a pinned lockfile — never an index install. `se-buddy doctor` reports and
+repairs venv/interpreter/version problems.
+
+**Reading a model.** `inspect`, `search`, `show`, `trace`, `asks` — bounded
+output, truncation always stated, behavioural elements (functional chains,
+scenarios, state machines) read generically rather than judged.
+
+**Project memory.** Six registers (Sec.6.2), principles, viewpoints,
+glossary, assumptions and ADRs — readable via `register`/`memory`/`show`,
+writable via the TTY-gated `write-register`/`write-memory`/`write-answer`.
+`write-baseline` records a manifest (model hash, register statuses, open
+asks) and a git tag.
+
+**Controlled model modification, end to end.** `write-propose` files a
+proposal as a real `capellambse.decl` document (automatic authority, no
+gate — a proposal asserts nothing yet). `plan` dry-runs it with nothing
+written to disk. `write-apply` runs the full lifecycle — check the tree is
+clean, check for drift since the proposal was filed, snapshot the model,
+apply, re-parse, run six validation layers, write the change record —
+restoring the pre-apply snapshot on any failure. `write-revert` restores a
+change from its snapshot. `validate` runs five real, automated layers plus
+an honest `UNKNOWN` for the one layer (`architectural`) no deterministic
+check can judge on its own.
+
+**Two independent write-safety layers.** The TTY gate (`se_buddy/gate.py`)
+refuses every write verb except `write-propose` unless run by a human at a
+real interactive terminal — no bypass flag exists, by design. `PreToolUse`
+hooks (`hooks/hooks.json`) independently block the same verbs, and direct
+edits to `.capella`/`.aird`, before Claude Code's own tool-dispatch loop
+gets there.
+
+**Eighteen skills** (`skills/`) covering project setup, the architecture
+track, and the modelling track, each following the spec's ten-section
+shape and citing the shared cross-cutting-behaviour/deliberation-discipline
+references instead of restating them.
+
+### Fixed (pre-release hardening pass)
+
+Before this release was pointed at a real Capella project, the full
+implementation — every phase, not just the latest diff — was reviewed for
+defects. 15 confirmed findings were fixed, each with a regression test,
+plus two more of the same severity found while writing those tests. Full
+detail: SPEC-COVERAGE.md's "Phase 3 hardening pass" section; summary:
+AGENT-LOG.md's `AC-0006`.
+
+The two most consequential: `--delete` was checked for diagram references
+only when the flag was passed, never enforced as *required* when a
+proposal actually deleted something; and the dirty-tree check silently
+passed a genuinely dirty tree whenever the model lived in a subdirectory,
+because of a doubled path segment. Also fixed: two swallowed-exception
+gaps in the apply lifecycle, an unvalidated baseline name (path
+traversal), a crash instead of a clean refusal in `write-revert`'s most
+common scenario, a dropped-row bug in `write-memory`'s save path, a
+missing `show`-command dispatch branch for principles/assumptions, an
+edge-dropping bug in `trace`'s reverse closure, an uncaught `EOFError` in
+the TTY gate, a write-order bug that could silently lose an owed diagram
+followup on a crash, a write-verb-blocking hook regex too narrow to catch
+its own module-invocation form, and two schema presence-check bugs. Every
+YAML writer in the codebase was also switched to an atomic write (temp
+file + rename), so a crash mid-write can no longer corrupt a record.
+
+### Known gaps (by design, not oversight)
+
+- `se-buddy perspective [<layer>]` — not built; `arch-perspective`'s skill
+  works without it.
+- `se-buddy export`/`model-export` — needs `capellambse-context-diagrams`,
+  not vendored; the skill documents the procedure without a working
+  command.
+- A generated, thin `CLAUDE.md` in a *consuming* project (spec Sec.5.2) —
+  `project-init` scaffolds the profile but does not yet generate this
+  file.
+- Phase 4 (a second, independently installed project) has not been
+  exercised.
+- The TTY gate's positive path (a human actually confirming) and the
+  `PreToolUse` hooks firing inside a real, enabled Claude Code session
+  cannot be verified by the agent that builds this — both are unit-tested
+  on their own logic, but neither has been watched happen live yet.
