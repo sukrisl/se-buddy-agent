@@ -18,9 +18,10 @@ line-by-line account of every spec requirement and how it's enforced.
 
 What works today, concretely:
 
-- **Bootstraps itself.** `bin/se-buddy` (or `bin\se-buddy.cmd` on Windows)
-  builds and repairs its own virtualenv on every invocation, no separate
-  install step.
+- **Bootstraps itself, locally.** The launcher (`bin/se-buddy`, or
+  `bin\se-buddy.cmd` on Windows) builds and repairs its own virtualenv,
+  inside the submodule, on every invocation — no separate install step,
+  and nothing touches your shell's `PATH` or anything outside the project.
 - **Reads a real Capella model.** `inspect`/`search`/`show`/`trace` work
   against the model, its diagrams, and every project record (ADRs,
   proposals, changes, asks, register rows) — bounded output, truncation
@@ -114,94 +115,80 @@ a real install.
 
 ## Prerequisites
 
-- Python 3.11+ on `PATH` as `python3` or `python`.
-- Network, the first time `bin/se-buddy` (or `bin\se-buddy.cmd`) runs in a clone, to install the pinned dependencies.
-- `git submodule update --init --recursive`, so `vendor/py-capellambse` is checked out — never `--remote` together with `--recursive` (spec Sec.7.1).
-- **A Rust toolchain (`rustc`, `cargo`).** capellambse 0.8.1 builds a Rust extension, and the bootstrap installs it from the vendored source rather than a prebuilt index wheel (spec Sec.5.1), so building it locally needs one. On Windows, the GNU-target toolchain (`winget install Rustlang.Rust.GNU`, or <https://rustup.rs> with the `x86_64-pc-windows-gnu` target) avoids also needing Visual Studio Build Tools — verified working on this repo. `se-buddy doctor` refuses with a clear message if no toolchain is found.
+Two things need to already be on your machine before you install:
+
+1. **Python 3.11 or later**, on `PATH` as `python3` or `python`.
+2. **A Rust toolchain** (`rustc` + `cargo`) — capellambse compiles a native
+   extension from source the first time you run `se-buddy`, and there's no
+   way around needing a compiler for that.
+   - macOS/Linux: install from <https://rustup.rs>.
+   - Windows: `winget install Rustlang.Rust.GNU` — this avoids also needing
+     Visual Studio Build Tools.
+
+If either is missing, `doctor` (see Install below) will tell you plainly
+rather than failing with a stack trace — so if you're not sure, install
+first and let it check for you.
+
+You'll also need network access, but only once: the first `se-buddy`
+command in a fresh clone downloads the pinned dependencies, and every run
+after that works offline.
 
 ## Install
 
-There are two different reasons to get this repo onto disk — installing it
-*into* a Capella project to actually use it, and cloning it standalone to
-develop or test `se-buddy` itself. They use different git commands; do not
-mix them up.
-
-### Into a Capella project (the real path)
-
-Spec Sec.5.1: **this always installs as a git submodule**, at a path Claude
-Code auto-loads as a plugin — never a plain clone alongside the project.
+Add it as a submodule at the path Claude Code auto-loads as a plugin, then
+start Claude Code at the project root (a fresh clone needs one
+workspace-trust confirmation on first run):
 
 ```bash
 cd <your-capella-project>
-git submodule add <this-repo-url> .claude/skills/se-buddy
-git submodule update --init --recursive   # pulls the vendored py-capellambse too
+git submodule add https://github.com/sukrisl/se-buddy-agent.git .claude/skills/se-buddy
+git submodule update --init --recursive
 ```
 
-`.claude-plugin/plugin.json` inside the submodule is what makes this load
-automatically as a **skills-directory plugin** — no marketplace, no
-copying, no per-project config. Skills become `/se-buddy:project-init` and
-so on; `bin/` is added to the Bash tool's `PATH` while the plugin is
-enabled, so `se-buddy` itself needs no separate install. A few constraints
-worth knowing up front, all from spec Sec.5.1:
-
-| Constraint | Consequence |
-| --- | --- |
-| Project-scope plugins need the workspace trust dialog accepted | One interactive confirmation, first run in a fresh clone |
-| Project-scope plugins load only from the session's primary working directory | Start Claude Code at the project root, or `/cd` there — it does not walk up from a subdirectory |
-| `SKILL.md` edits are live; `hooks/`, `.mcp.json`, `agents/` changes are not | After `git submodule update`, run `/reload-plugins` |
-| Version pinning is the submodule commit | `git submodule update --remote` is the upgrade — the project's decision, taken deliberately, never automatic |
-
-Then run `bin/se-buddy doctor` (`bin\se-buddy.cmd doctor` on Windows) from
-the project root to bootstrap the venv, or ask Claude Code for
-`/se-buddy:project-init` to also scaffold the profile in the same pass.
-
-### Standalone, for developing or testing `se-buddy` itself
-
-This is what you want if you're working on `se-buddy`'s own code, not
-installing it to use against a model.
+This nests `se-buddy` at `.claude/skills/se-buddy`, inside your project —
+nothing is installed outside it, and nothing is added to your shell's
+`PATH`. Every command is run with an explicit local path, always:
 
 ```bash
-git clone --recursive <this-repo-url>
-cd se-buddy-agent
-bin/se-buddy doctor
+.claude/skills/se-buddy/bin/se-buddy doctor
 ```
 
-On Windows, use `bin\se-buddy.cmd doctor` instead. Either way, `doctor` is
-always the right first command: it builds/repairs the venv, checks the
-interpreter floor and the installed capellambse version against the pin,
-and — once a project profile exists — reports profile completeness, model
-drift, and outstanding record-schema problems.
+(`.claude\skills\se-buddy\bin\se-buddy.cmd doctor` on Windows.) `doctor`
+bootstraps the venv and, once a profile exists, reports profile
+completeness, model drift, and record-schema problems.
 
 ## How to use it
 
-**As a Claude Code plugin (the intended path).** Add this repo as a
-submodule of your Capella project and let Claude Code discover the skills
-in [`skills/`](skills/) (see the section above). In conversation, ask for
-`/se-buddy:project-init` to scaffold a profile, then work through the
-architecture track (`arch-viewpoint`, `arch-review`, `arch-decide`, …) or
-the modelling track (`model-impact`, `model-plan`, `model-apply`, …) as
-skills — each one drafts, and hands off to you for anything that writes.
+Work through Claude Code: it discovers the skills in [`skills/`](skills/)
+automatically once the plugin is enabled. Ask for `/se-buddy:project-init`
+to scaffold a profile, then work through the architecture track
+(`arch-viewpoint`, `arch-review`, `arch-decide`, …) or the modelling track
+(`model-impact`, `model-plan`, `model-apply`, …) as skills — each one
+drafts, and hands off to you for anything that writes.
 
-**As a CLI directly**, for development or for exercising a command by hand.
-Every command is `bin/se-buddy <verb> [args]` (`bin\se-buddy.cmd` on
-Windows) from inside the project directory; `--model <path>` overrides
-`se-buddy/profile.yaml`'s model path where one is needed.
-
-A typical first real session, once a profile exists:
+Every skill's "Commands used" section names the `se-buddy` verbs it calls
+underneath, and you can run any of them yourself too, the same way as
+above — the local path, never a bare `se-buddy` relying on `PATH`.
+`--model <path>` overrides `se-buddy/profile.yaml`'s model path where one
+is needed. To keep the examples below readable, they use `$SE_BUDDY` for
+that path — it's not a variable `se-buddy` sets for you, just a stand-in
+you can alias yourself if you want:
 
 ```bash
-bin/se-buddy doctor                      # is the install and the profile sound?
-bin/se-buddy inspect                     # counts: elements, diagrams, open asks
-bin/se-buddy search "retry"              # find elements by name/summary
-bin/se-buddy show <uuid-or-record-id>    # one element or record, in full
-bin/se-buddy trace <uuid-or-record-id>   # what it traces to/from, what breaks
+SE_BUDDY=.claude/skills/se-buddy/bin/se-buddy   # a local alias, nothing exported to PATH
 
-bin/se-buddy write-propose cp.yaml       # file a proposal (no gate: asserts nothing yet)
-bin/se-buddy plan CP-0001                # dry run: what would change, on disk untouched
-bin/se-buddy write-apply CP-0001 \
-  --authorized-by "engineer said go"     # TTY-gated: applies, validates, records, snapshots
-bin/se-buddy validate                    # six layers of findings against the current model
-bin/se-buddy write-revert CHANGE-0001    # restore a change from its snapshot, byte-identical
+$SE_BUDDY doctor                      # is the install and the profile sound?
+$SE_BUDDY inspect                     # counts: elements, diagrams, open asks
+$SE_BUDDY search "retry"              # find elements by name/summary
+$SE_BUDDY show <uuid-or-record-id>    # one element or record, in full
+$SE_BUDDY trace <uuid-or-record-id>   # what it traces to/from, what breaks
+
+$SE_BUDDY write-propose cp.yaml       # file a proposal (no gate: asserts nothing yet)
+$SE_BUDDY plan CP-0001                # dry run: what would change, on disk untouched
+$SE_BUDDY write-apply CP-0001 \
+  --authorized-by "engineer said go"  # TTY-gated: applies, validates, records, snapshots
+$SE_BUDDY validate                    # six layers of findings against the current model
+$SE_BUDDY write-revert CHANGE-0001    # restore a change from its snapshot, byte-identical
 ```
 
 Read verbs (`doctor`, `inspect`, `search`, `show`, `trace`, `asks`,
