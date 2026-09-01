@@ -33,6 +33,13 @@ What works today, concretely:
   expectations, verification, not-carried, in Sec.6.2's six kinds),
   principles, viewpoints, glossary, assumptions and ADRs are all readable
   and, through the TTY-gated `write-*` verbs, writable.
+- **Sets a project up without a text editor.** `profile.yaml`'s four fields
+  are detected from the project's own `.capella`, `.aird` and `.project`
+  and shown with the file each came from; the domain pack is interviewed,
+  drafted and written through a gated verb. Nothing in either is
+  hand-transcribed into a template any more, and `doctor` now checks the
+  domain pack's *content* against spec Sec.5.4's six sections rather than
+  only that the file exists.
 - **Proposes, previews, and applies real model changes**, end to end:
   `write-propose` files a proposal as an executable `capellambse.decl`
   document; `plan` dry-runs it with nothing written to disk; `write-apply`
@@ -54,7 +61,7 @@ What works today, concretely:
   implementation (not just the latest diff) was reviewed for defects before
   this was pointed at a real project; 15 confirmed findings were fixed, plus
   two more found while writing their regression tests (see AGENT-LOG.md's
-  `AC-0006`). 193 tests pass.
+  `AC-0006`). 246 tests pass.
 
 **Deliberately not built yet**, each a scoped decision recorded in
 SPEC-COVERAGE.md rather than an oversight:
@@ -97,7 +104,7 @@ installed and exposes each as `/se-buddy:<name>`. There are nineteen:
 | Skill | What it's for |
 | --- | --- |
 | `doctor` | Confirm the install is complete — including the one thing the CLI can't check, that the plugin loaded |
-| `project-init` | Scaffold a new project's `se-buddy/` profile and gate on its completeness |
+| `project-init` | Detect the profile from the project's own files, interview the domain pack, generate its `CLAUDE.md`, and gate on completeness |
 | `frame-request`, `retrieve-context`, `trace-rationale`, `write-plain` | Shared behaviours every other skill builds on (D1–D9, C01–C08) |
 | `arch-perspective`, `arch-viewpoint`, `arch-transition`, `arch-review`, `arch-decide`, `arch-principles` | The architecture track — reasoning about the model against recorded viewpoints and principles, filing ADRs |
 | `risk-manage` | Track and close risk-register rows |
@@ -113,13 +120,12 @@ the *deterministic* layer's — a skill's own "Commands used" section always
 names exactly which `se-buddy` verbs it calls, so you can trace any skill
 down to the code that actually runs.
 
-**One real gap worth knowing about:** spec Sec.5.2 says a project that
-installs `se-buddy` as a submodule should get a thin, generated `CLAUDE.md`
-of its own — living in *that* project, not this one — pointing at its
-`se-buddy/profile.yaml`. `project-init` does not generate this yet; it only
-scaffolds the four `se-buddy/` profile files. Not currently tracked as a
-phase gap in SPEC-COVERAGE.md — worth raising if you want it built before
-a real install.
+A project that installs `se-buddy` also gets a thin, generated `CLAUDE.md`
+of its own (spec Sec.5.2) — living in *that* project, not this one —
+pointing at its `se-buddy/` profile and stating the rules that always
+hold. `se-buddy write-claude-md` generates it, and `project-init` runs it.
+It writes only inside a delimited block, so re-running it after a profile
+change never disturbs anything you wrote around it.
 
 ## Prerequisites
 
@@ -213,7 +219,13 @@ instead — nothing is ever added to your own shell's `PATH`:
 bootstraps the venv and, once a profile exists, reports profile
 completeness, model drift, and record-schema problems.
 
-**6. Scaffold the profile:** `/se-buddy:project-init`.
+**6. Set the project up:** `/se-buddy:project-init`.
+
+It detects `profile.yaml`'s four fields from your `.capella`, `.aird` and
+`.project` and shows you where each came from, interviews the six sections
+of the domain pack, drafts your viewpoints and principles, and generates
+the project's `CLAUDE.md`. You run each gated write yourself — nothing
+here is hand-transcribed into a template.
 
 ### Troubleshooting
 
@@ -295,6 +307,9 @@ clear message, not silently succeed.
 | `plan CP-nnnn` | Dry run: what would change, what must be drawn by hand |
 | `validate` | Six layers of findings, with evidence |
 | `followup` | Manual diagram work still owed, rendered as Markdown |
+| `write-profile [fields.yaml]` | Write `se-buddy/profile.yaml`, detected from the project's own files (gated) |
+| `write-domain draft.md` | Write `se-buddy/domain.md` from a drafted pack (gated) |
+| `write-claude-md` | Generate the project's thin `CLAUDE.md` (Sec.5.2; not gated — writes only inside its own block) |
 | `write-register <name> row.yaml` | The only route into a register (gated) |
 | `write-answer ASK-nnnn a.yaml` | Close one ask (gated) |
 | `write-baseline <name> [--force]` | Write a manifest and a git tag (gated) |
@@ -310,7 +325,7 @@ clear message, not silently succeed.
 PYTHONPATH=src vendor/.venv/Scripts/python.exe -m unittest discover -s tests
 ```
 
-193 tests, no network required once the venv is built.
+246 tests, no network required once the venv is built.
 
 ## Changelog
 

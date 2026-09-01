@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from se_buddy.profile import check_completeness, profile_dir
+from tests import complete_domain_pack
 
 
 class TestCheckCompleteness(unittest.TestCase):
@@ -29,7 +30,7 @@ class TestCheckCompleteness(unittest.TestCase):
                 "project_name: Example\n",
                 encoding="utf-8",
             )
-            (pdir / "domain.md").write_text("# Domain\n", encoding="utf-8")
+            (pdir / "domain.md").write_text(complete_domain_pack(), encoding="utf-8")
             (pdir / "viewpoints.yaml").write_text(
                 "viewpoints:\n"
                 "  - name: safety\n"

@@ -15,7 +15,15 @@ from pathlib import Path
 
 import yaml
 
+from se_buddy import domain_pack
+from se_buddy.atomic_write import atomic_write_text
+
 PROFILE_DIRNAME = "se-buddy"
+
+#: The four fields spec Sec.5.3 requires of `profile.yaml`, in the order they
+#: are written. Single source for the completeness check, the validator and
+#: the renderer, so the three cannot drift apart.
+REQUIRED_PROFILE_FIELDS = ("model_path", "aird_path", "capella_version", "project_name")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -60,7 +68,7 @@ def check_completeness(root: Path) -> list[ProfileGap]:
         )
     else:
         data = _load_yaml(profile_yaml) or {}
-        for field in ("model_path", "aird_path", "capella_version", "project_name"):
+        for field in REQUIRED_PROFILE_FIELDS:
             if not data.get(field):
                 gaps.append(
                     ProfileGap(
@@ -77,6 +85,21 @@ def check_completeness(root: Path) -> list[ProfileGap]:
                 done_when="the domain pack exists (spec Sec.5.4)",
             )
         )
+    else:
+        # Existence was the whole check until now, which is how a real
+        # install reported "profile complete" over a file still headed
+        # "# Domain pack: <replace with your domain's name>". Sec.5.4's six
+        # sections are binding as project requirements once recorded, so an
+        # unreplaced skeleton is not an empty pack - it is example prose
+        # being read as something the project asserts.
+        pack = domain_pack.check(domain_md.read_text(encoding="utf-8"))
+        for gap in pack.structural + pack.skeleton_signals:
+            gaps.append(
+                ProfileGap(
+                    object="se-buddy/domain.md",
+                    done_when=gap,
+                )
+            )
 
     viewpoints_yaml = pdir / "viewpoints.yaml"
     if not viewpoints_yaml.exists():
@@ -133,3 +156,108 @@ def _load_yaml(path: Path):
     if not text.strip():
         return None
     return yaml.safe_load(text)
+
+
+class ProfileWriteError(Exception):
+    """A `write profile` request could not be satisfied - reported plainly."""
+
+
+_PROFILE_HEADER = """\
+# se-buddy project profile (spec Sec.5.3, Sec.5.2 - PROFILE layer).
+#
+# Written by `se-buddy write-profile`, which is TTY-gated: every value below
+# was read out of this project's own files (the .capella, its .aird, the
+# .project descriptor) and then confirmed by the engineer at a terminal
+# before it was written. Nothing here was invented by the agent, and nothing
+# here was accepted without a human seeing where it came from.
+#
+# Re-run `se-buddy write-profile` to change any of it. Editing this file by
+# hand also works and nothing will stop you - it is ordinary YAML - but the
+# gated verb is what keeps `se-buddy doctor` and `se-buddy asks` agreeing
+# with reality.
+"""
+
+
+def render_profile(fields: dict) -> str:
+    """Renders `profile.yaml` from the four Sec.5.3 fields, header and all.
+
+    Hand-rolled rather than `yaml.safe_dump`ed over the template because the
+    header is the part that tells the next reader how this file came to say
+    what it says, and a dump would drop every comment in it.
+    """
+    lines = [_PROFILE_HEADER, ""]
+    width = max(len(f) for f in REQUIRED_PROFILE_FIELDS) + 2
+    for field in REQUIRED_PROFILE_FIELDS:
+        value = fields[field]
+        # Quote anything YAML would otherwise read as a number or a bool -
+        # `capella_version: 7.0` is a float, and `7.0.1` is not, so a project
+        # on a two-part version would silently change type without this.
+        rendered = yaml.safe_dump(value, default_flow_style=True).strip().rstrip("...").strip()
+        lines.append(f"{field + ':':<{width}}{rendered}")
+
+    last_ac = fields.get("last_acknowledged_ac")
+    if last_ac:
+        lines.append(f"{'last_acknowledged_ac:':<{width}}{last_ac}")
+    else:
+        lines.append("")
+        lines.append("# The newest AGENT-LOG.md AC-nnnn this project has seen (spec Sec.5.5):")
+        lines.append("# last_acknowledged_ac:")
+
+    return "\n".join(lines) + "\n"
+
+
+def validate_profile(root: Path, fields: dict) -> dict:
+    """Checks the four fields are present and that both paths resolve.
+
+    Path resolution is checked here rather than left to first use because
+    Sec.5.3 asks for "resolvable .capella and .aird paths" specifically - a
+    profile naming a file that isn't there is the failure mode that turns
+    every later command's error into a confusing one.
+    """
+    cleaned: dict = {}
+    for field in REQUIRED_PROFILE_FIELDS:
+        value = fields.get(field)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raise ProfileWriteError(f"{field} is missing or empty - all four fields are required")
+        cleaned[field] = value.strip() if isinstance(value, str) else value
+
+    for field, suffix in (("model_path", ".capella"), ("aird_path", ".aird")):
+        value = str(cleaned[field])
+        if not value.endswith(suffix):
+            raise ProfileWriteError(f"{field} is {value!r}, which does not end in {suffix}")
+        if not (root / value).is_file():
+            raise ProfileWriteError(f"{field} is {value!r}, which does not resolve under {root}")
+
+    if "last_acknowledged_ac" in fields:
+        cleaned["last_acknowledged_ac"] = fields["last_acknowledged_ac"]
+    return cleaned
+
+
+def write_profile(root: Path, fields: dict) -> Path:
+    """Validates and writes `se-buddy/profile.yaml`. Raises `ProfileWriteError`."""
+    cleaned = validate_profile(root, fields)
+    pdir = profile_dir(root)
+    pdir.mkdir(parents=True, exist_ok=True)
+    path = pdir / "profile.yaml"
+    atomic_write_text(path, render_profile(cleaned))
+    return path
+
+
+def write_domain(root: Path, text: str) -> Path:
+    """Validates and writes `se-buddy/domain.md`. Raises `ProfileWriteError`.
+
+    Refuses on structural gaps only (a required Sec.5.4 section missing or
+    empty). The skeleton heuristics - leftover placeholders, the template's
+    own instructions - are reported by `se_buddy.domain_pack` and shown in
+    the write gate, deliberately without a veto: see that module's docstring.
+    """
+    gaps = domain_pack.check(text)
+    if gaps.structural:
+        raise ProfileWriteError(
+            "domain.md is missing required spec Sec.5.4 content: " + "; ".join(gaps.structural)
+        )
+    pdir = profile_dir(root)
+    pdir.mkdir(parents=True, exist_ok=True)
+    path = pdir / "domain.md"
+    atomic_write_text(path, text if text.endswith("\n") else text + "\n")
+    return path

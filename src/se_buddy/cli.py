@@ -6,6 +6,11 @@ with no TTY gate, spec Sec.7.3), `plan`, `write-apply`, `write-record`,
 `export` - flagged, not built, per SPEC-COVERAGE.md (both were explicit,
 scoped decisions, not oversights).
 
+`write-profile` and `write-domain` (AC-0008) are the init-time pair: they
+replaced hand-editing `se-buddy/profile.yaml` and `se-buddy/domain.md` in a
+text editor, which was the one authoring path in this codebase that had no
+verb behind it at all.
+
 Every `write-*` verb except `write-propose` is TTY-gated (spec Sec.2.3,
 `se_buddy.gate`) - it will refuse when run from here, or from any other
 non-interactive shell.
@@ -32,7 +37,10 @@ from se_buddy.commands import (
     write_answer,
     write_apply,
     write_baseline,
+    write_claude_md,
+    write_domain,
     write_memory,
+    write_profile,
     write_propose,
     write_record,
     write_register,
@@ -69,6 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
         plan,
         validate,
         followup,
+        write_profile,
+        write_domain,
+        write_claude_md,
         write_register,
         write_answer,
         write_baseline,

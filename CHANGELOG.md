@@ -7,9 +7,39 @@ the spec, see [SPEC-COVERAGE.md](SPEC-COVERAGE.md).
 
 ## Unreleased
 
-First real install into a project that isn't this repo. It surfaced two
-problems, both in the install path rather than in anything the spec
-covers, and both are fixed here.
+First real install into a project that isn't this repo, and everything
+that install broke. Nothing here changes what the agent may assert or who
+authorises it; it is all install path, project setup, and one piece of
+Sec.5.2 that was specified and never built.
+
+### Added
+
+**`profile.yaml` is detected, not typed.** Its four fields are facts the
+project already records — the one `.capella` in the root, its `.aird`, the
+`Capella_Version` marker inside the model, the `<name>` in Eclipse's
+`.project` — so `se_buddy.profile_detect` reads them and shows each with
+the file it came from. `se-buddy write-profile` (new, TTY-gated) writes
+them after the engineer confirms values they can see the source of. Pass a
+YAML file to override any of them; that is the ordinary path, not an
+escape hatch. A partial detection refuses rather than writing three fields
+out of four, which would read as configured and fail later.
+
+**`se-buddy write-domain` (new, TTY-gated)** replaces hand-editing
+`domain.md` in a text editor. `project-init` now interviews the six spec
+Sec.5.4 sections, drafts the pack, and hands it to the engineer to write.
+This is the `write-memory viewpoints` pattern — agent-drafted, engineer-run
+— applied to the one piece of engineering judgement that was previously
+*ungated and forbidden*, and therefore fell through to Notepad. What stays
+forbidden is unchanged and is the point of the interview: the agent must
+not supply the judgement, only transcribe it.
+
+**`se-buddy write-claude-md` (new)** generates the consuming project's thin
+`CLAUDE.md` (spec Sec.5.2), which was specified and never built. It points
+at `se-buddy/` and states the rules that always hold, and carries no
+architectural content. Not gated, because it writes only between two
+markers and never touches anything outside them: no `CLAUDE.md` creates
+one, an existing block is replaced in place, an existing file without one
+is appended to. Re-running it is idempotent.
 
 ### Fixed
 
@@ -53,6 +83,32 @@ refuses on drift (spec Sec.7.1), but the artefact now comes from an index
 rather than a SHA this repository records. Hash-pinning the wheel in
 `lockfile` would recover that and is not done here.
 
+**"profile complete" over an unedited template.** `check_completeness`
+asked only whether `domain.md` existed. On the real install that meant a
+pack whose heading still read `# Domain pack: <replace with your domain's
+name>`, with the template's own instructions to the reader above it,
+counted as complete. `se_buddy.domain_pack` now checks the six Sec.5.4
+sections and reports leftover skeleton markers, split deliberately:
+structural gaps (a section missing or empty) are facts and `write-domain`
+refuses on them; placeholder detection is a heuristic and only ever
+reports — as `SUPPLY` asks, and in the write gate where a human reads it.
+
+**The write-guard hook would have blocked `write-claude-md`.** Its verb
+pattern was `write-(\w+)`, which stops at a hyphen, so it read
+`write-claude-md` as the verb `write-claude` — not in its exemption set,
+so it blocked an ungated verb the agent is meant to run, naming a verb
+that does not exist. The pattern now accepts hyphenated verb names and the
+exemption set is explicit (`propose`, `claude-md`). An unknown
+`write-x-y` still fails closed.
+
+**Two detection bugs, both caught by tests against a real model.** The
+`Capella_Version` pattern's character class swallowed the `-->` closing
+its own comment, yielding `7.0.1--`. The `.afm` fallback matched the first
+`version="..."` in the file, which is the XML declaration's `version="1.0"`
+— it would have written `capella_version: 1.0` into a real profile. Both
+are now anchored, and the `.afm` path prefers the Capella core viewpoint's
+own version where a project references several.
+
 ### Changed
 
 README: Install is now six numbered steps, with the two that decide
@@ -63,7 +119,13 @@ inside Claude Code once the plugin's `bin/` reaches `PATH`; the explicit
 local path is given as the outside-Claude-Code form rather than the only
 form. Prerequisites no longer lists Rust unconditionally.
 
-193 tests pass (was 179).
+`project-init`'s skill was rewritten around the interview flow. Its old
+rule - that `profile.yaml` and `domain.md` are "permanently hand-edited
+by design" - was a skill-level decision, not a spec constraint: Sec.5.4
+requires the pack to exist and be project-supplied, and never says a
+human must type it into an editor.
+
+246 tests pass (was 179).
 
 ## v0.1.0 — 2026-08-31
 

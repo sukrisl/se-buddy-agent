@@ -26,6 +26,23 @@ class TestBlockWriteVerbs(unittest.TestCase):
         result = _run("bin/se-buddy write-propose foo.yaml")
         self.assertEqual(result.returncode, 0)
 
+    def test_the_two_new_gated_verbs_are_blocked(self):
+        for command in ("bin/se-buddy write-profile", "bin/se-buddy write-domain draft.md"):
+            with self.subTest(command=command):
+                self.assertEqual(_run(command).returncode, 2)
+
+    def test_a_hyphenated_ungated_verb_is_not_blocked(self):
+        # `\w+` stopped at the second hyphen, so `write-claude-md` read as
+        # the verb `write-claude` - not in the exemption set, so an ungated
+        # verb the agent is meant to run was blocked, under a verb name
+        # that does not exist.
+        result = _run("bin/se-buddy write-claude-md")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_an_unknown_hyphenated_verb_still_fails_closed(self):
+        result = _run("bin/se-buddy write-something-else")
+        self.assertEqual(result.returncode, 2)
+
     def test_a_read_verb_is_not_blocked(self):
         result = _run("bin/se-buddy inspect")
         self.assertEqual(result.returncode, 0)

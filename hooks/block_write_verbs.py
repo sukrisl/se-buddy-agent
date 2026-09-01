@@ -36,7 +36,27 @@ import re
 import sys
 
 _HAS_SE_BUDDY = re.compile(r"se[-_]buddy", re.IGNORECASE)
-_WRITE_VERB = re.compile(r"\bwrite-(\w+)\b", re.IGNORECASE)
+
+#: `[\w-]+`, not `\w+`: a verb name may contain a hyphen. With `\w+` this
+#: read `write-claude-md` as the verb `write-claude`, which is not exempt
+#: below, so it blocked an ungated verb the agent is meant to run - and
+#: named a verb that does not exist while doing it. Greedy is the safe
+#: direction here: an unknown `write-x-y` captures as `x-y`, misses the
+#: exemption set, and is blocked rather than let through.
+_WRITE_VERB = re.compile(r"\bwrite-([\w-]+)\b", re.IGNORECASE)
+
+#: The verbs spec Sec.10.1's "except `write propose`" carve-out covers,
+#: which is to say: every `write-*` verb that is not TTY-gated. A verb
+#: belongs here only because the CLI itself does not gate it - keep this in
+#: step with the gate, never ahead of it.
+#:
+#:   propose    - "a proposal asserts what *could* be done, not what is
+#:                true" (Sec.7.3)
+#:   claude-md  - generates the project's thin CLAUDE.md (Sec.5.2): no
+#:                architectural content, and it writes only inside its own
+#:                delimited block, so it can neither assert anything the
+#:                engineer must judge nor lose anything they wrote
+_UNGATED_VERBS = frozenset({"propose", "claude-md"})
 
 
 def main() -> int:
@@ -52,7 +72,7 @@ def main() -> int:
 
     for match in _WRITE_VERB.finditer(command):
         verb = match.group(1).lower()
-        if verb == "propose":
+        if verb in _UNGATED_VERBS:
             continue
         print(
             f"se-buddy: `write-{verb}` must be run by the engineer, directly, in their "

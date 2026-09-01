@@ -4,6 +4,114 @@ Format and purpose: spec Sec.5.5. Newest first, append-only, never rewritten.
 
 ---
 
+## AC-0008 — 2026-09-01 — Project setup: detect the profile, interview the domain pack, generate CLAUDE.md
+
+```
+surface   cli (three new verbs), skill (project-init rewritten), schema
+          (profile.yaml gains a generated header; content unchanged), test
+breaking  no, with one behaviour change worth reading: `se-buddy doctor`
+          and `se-buddy asks` now report SUPPLY gaps against a domain.md
+          that is still template text. A project that was reporting
+          "profile complete" over an unedited pack will start reporting
+          asks - the asks are correct, and were always true
+action    projects on the previous revision: re-run `se-buddy doctor`
+          after updating; if new domain.md asks appear, the pack was
+          never finished. `se-buddy write-claude-md` is new and worth
+          running once
+why       AC-0007 fixed getting the plugin loaded. This fixes what a
+          project has to do next, which was the other half of the same
+          complaint: hand-writing a profile and a six-section domain pack
+          in a text editor, with nothing checking the result
+```
+
+**`profile.yaml` did not need a human at all.** Its four fields are facts
+already written in the project's own files - the one `.capella` in the
+root, its `.aird`, the `Capella_Version` marker inside the model, the
+`<name>` in Eclipse's `.project`. `se_buddy.profile_detect` reads them and
+returns each with the file it came from; `se-buddy write-profile` shows
+both and writes only after a typed confirmation.
+
+The provenance is the part that matters. The old objection to this was
+spec Sec.5's "nothing project-specific belongs in agent-authored content",
+which is about content the agent *originates* - reading a version marker
+out of a file the engineer committed is the same class of act as
+`se-buddy search`. Showing where each value came from is what keeps it
+that way: the engineer checks a value against its source instead of
+trusting it, and the TTY gate is still what commits it.
+
+**`domain.md` needed a human, but not a text editor.** Sec.5.4 makes every
+line of the pack binding as a project requirement, so the agent must not
+invent it - that part was right and is unchanged. What was wrong was the
+conclusion drawn from it: `skills/project-init/SKILL.md` forbade the agent
+from writing the file at all, and handed over a six-section template.
+
+That put `domain.md` in a category of one. `write-memory viewpoints` is
+also engineering judgement, and it is agent-drafted and TTY-gated: the
+agent writes down what the engineer said, the engineer runs the write.
+`domain.md` was the only piece of judgement that was *ungated and
+forbidden*, so it fell through to Notepad - an asymmetry that cost the
+entire authoring experience and bought no safety the gate did not already
+provide. `se-buddy write-domain` closes it; `project-init` now interviews
+the six sections and drafts the pack.
+
+Worth being precise, since this is the rule being changed: the constraint
+was never on who types the file, only on who supplies the judgement. The
+interview is what enforces the part that matters, and the skill's Failure
+handling still refuses to infer a pack from a README or from the model.
+
+**Nothing checked the result, which is how the first install ended up with
+a real pack under the heading "# Domain pack: <replace with your domain's
+name>", with the template's own instructions to the reader still above
+it - and `doctor` calling that complete.** `check_completeness` asked only
+whether the file existed. `se_buddy.domain_pack` now checks Sec.5.4's six
+sections, with the two kinds of finding deliberately kept apart:
+
+  - structural (a section missing or empty) is a fact about the document,
+    and `write-domain` refuses on it;
+  - a leftover `<placeholder>` or the template's preamble is a heuristic,
+    so it is reported - as `SUPPLY` asks, and in the write gate where a
+    human reads it before confirming - and never given a veto. Sec.5.3
+    says completeness reports and does not block, and a regex is not
+    entitled to be the exception.
+
+**`CLAUDE.md` (Sec.5.2) was specified and never built.** `se-buddy
+write-claude-md` generates it: thin, pointing at `se-buddy/`, stating the
+rules that always hold, carrying no architectural content. Not gated, and
+the reasoning is the same one that governs `write propose` and
+`se_buddy.scaffold` - authority follows what a write can assert and what
+it can lose. This one asserts nothing the engineer must judge, and it
+writes only between two markers, so there is no overwrite case to guard:
+no file creates one, an existing block is replaced in place, an existing
+file without one is appended to. Idempotent.
+
+**Two detection bugs, both found by tests rather than by inspection, both
+of which would have written a wrong value into a real profile.** The
+`Capella_Version` character class swallowed the `-->` closing its own
+comment (`7.0.1--`), caught against the real model. The `.afm` fallback
+matched the first `version="..."` in the file, which is always the XML
+declaration's `version="1.0"`. Both are anchored now, and the `.afm` path
+prefers the Capella core viewpoint where a project references several.
+
+**Adding an ungated verb broke the write-guard hook, which is worth
+recording as the cost of that carve-out rather than as a footnote.**
+`block_write_verbs.py` matched `write-(\w+)`, and `\w` stops at a hyphen,
+so it read `write-claude-md` as the verb `write-claude` - absent from its
+exemption set, so the second defence layer blocked a verb the agent is
+supposed to run, under a name that does not exist. The pattern now takes
+hyphenated verb names and the exemption set is explicit and annotated
+(`propose`, `claude-md`), tied to the one property that puts a verb in it:
+the CLI itself does not gate it. An unknown `write-x-y` still fails
+closed. Caught here rather than in a real session only because the hook's
+own tests were extended alongside the verb.
+
+246 tests pass (was 193). One existing test changed rather than broke:
+`test_profile`'s complete-profile case wrote `# Domain\n` as its domain
+pack, which is no longer one - it now uses a `tests.complete_domain_pack()`
+fixture built from `REQUIRED_SECTIONS`, so adding a required section keeps
+it passing for the right reason instead of going stale.
+
+---
+
 ## AC-0007 — 2026-09-01 — Install path: make "installed" verifiable, and drop the Rust prerequisite
 
 ```
