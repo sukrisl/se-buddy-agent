@@ -121,17 +121,56 @@ a real install.
 
 ## Install
 
+There are two different reasons to get this repo onto disk — installing it
+*into* a Capella project to actually use it, and cloning it standalone to
+develop or test `se-buddy` itself. They use different git commands; do not
+mix them up.
+
+### Into a Capella project (the real path)
+
+Spec Sec.5.1: **this always installs as a git submodule**, at a path Claude
+Code auto-loads as a plugin — never a plain clone alongside the project.
+
+```bash
+cd <your-capella-project>
+git submodule add <this-repo-url> .claude/skills/se-buddy
+git submodule update --init --recursive   # pulls the vendored py-capellambse too
+```
+
+`.claude-plugin/plugin.json` inside the submodule is what makes this load
+automatically as a **skills-directory plugin** — no marketplace, no
+copying, no per-project config. Skills become `/se-buddy:project-init` and
+so on; `bin/` is added to the Bash tool's `PATH` while the plugin is
+enabled, so `se-buddy` itself needs no separate install. A few constraints
+worth knowing up front, all from spec Sec.5.1:
+
+| Constraint | Consequence |
+| --- | --- |
+| Project-scope plugins need the workspace trust dialog accepted | One interactive confirmation, first run in a fresh clone |
+| Project-scope plugins load only from the session's primary working directory | Start Claude Code at the project root, or `/cd` there — it does not walk up from a subdirectory |
+| `SKILL.md` edits are live; `hooks/`, `.mcp.json`, `agents/` changes are not | After `git submodule update`, run `/reload-plugins` |
+| Version pinning is the submodule commit | `git submodule update --remote` is the upgrade — the project's decision, taken deliberately, never automatic |
+
+Then run `bin/se-buddy doctor` (`bin\se-buddy.cmd doctor` on Windows) from
+the project root to bootstrap the venv, or ask Claude Code for
+`/se-buddy:project-init` to also scaffold the profile in the same pass.
+
+### Standalone, for developing or testing `se-buddy` itself
+
+This is what you want if you're working on `se-buddy`'s own code, not
+installing it to use against a model.
+
 ```bash
 git clone --recursive <this-repo-url>
 cd se-buddy-agent
 bin/se-buddy doctor
 ```
 
-On Windows, use `bin\se-buddy.cmd doctor` instead. `doctor` is always the
-right first command: it builds/repairs the venv, checks the interpreter
-floor and the installed capellambse version against the pin, and — once a
-project profile exists — reports profile completeness, model drift, and
-outstanding record-schema problems.
+On Windows, use `bin\se-buddy.cmd doctor` instead. Either way, `doctor` is
+always the right first command: it builds/repairs the venv, checks the
+interpreter floor and the installed capellambse version against the pin,
+and — once a project profile exists — reports profile completeness, model
+drift, and outstanding record-schema problems.
 
 ## How to use it
 
